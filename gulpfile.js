@@ -36,6 +36,9 @@ gulp.task('build', (cb) => {
 });
 
 gulp.task('generate', (cb) => {
+  if (!fs.existsSync(JSON_OUT)){
+    fs.mkdirSync(JSON_OUT);
+  }
   LIB_PATH.forEach(path => {
     var p = path.lib;
     path.files.forEach(file => {
