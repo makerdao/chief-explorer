@@ -7,12 +7,12 @@ const web3 = new Web3();
 
 var dschief = require('./config/dschief.json');
 var dstoken = require('./config/dstoken.json');
-var x = web3.eth.contract(dschief.abi);
-var t = web3.eth.contract(dstoken.abi);
+var chiefFab = web3.eth.contract(dschief.abi);
+var tokenFab = web3.eth.contract(dstoken.abi);
 window.dschief = dschief;
 window.dstoken = dstoken;
-window.x = x;
-window.t = t;
+window.chiefFab = chiefFab;
+window.tokenFab = tokenFab;
 window.l = console.log;
 
 class App extends Component {
@@ -21,16 +21,63 @@ class App extends Component {
   }
 
   componentDidMount() {
-    web3.setProvider(window.web3 ?
-      window.web3.currentProvider :
-      new Web3.providers.HttpProvider('http://localhost:8545')
-    );
-    window.web3 = web3;
-    web3.eth.getAccounts((e,r) => {
-      this.setState({
-        account: r[0] || 'no account'
-      })
-    });
+    setTimeout(() => {
+      web3.setProvider(window.web3 ?
+        window.web3.currentProvider :
+        new Web3.providers.HttpProvider('http://localhost:8545')
+      );
+      window.web3 = web3;
+      web3.eth.getAccounts((e,r) => {
+        if (!e) {
+          web3.eth.defaultAccount = r[0] || null;
+          this.setState({
+            account: r[0] || null
+          });
+        }
+      });
+    }, 500);
+  }
+
+  deploy = async (e) => {
+    e.preventDefault();
+    // if (this.max_yays.value) {
+    //   this.doDeploy(this.max_yays.value)
+    //   .then(res => {
+    //     //console.log(res);
+    //   });
+    // }
+    try {
+      var token1 = await this.deployToken();
+      var token2 = await this.deployToken();
+      console.log(token1);
+      console.log(token2);
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  doDeploy = (max_yays) => {
+    return Promise.resolve(this.deployToken());
+  }
+
+  deployToken = () => {
+    return new Promise((resolve, reject) => {
+      tokenFab.new({bytecode: dstoken.bytecode, gas: 2000000}, (error, tx) => {
+        if (tx) {
+          web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
+            if (!err) {
+              if (res && res.contractAddress) {
+                resolve(res.contractAddress);
+              }
+            } else {
+              reject(err);
+            }
+          });
+        } else {
+          reject(error);
+        }
+      });
+    })
   }
 
   render() {
@@ -44,6 +91,10 @@ class App extends Component {
           To get started, edit <code>src/App.js</code> and save to reload.
         </p>
         <p>{this.state.account}</p>
+        <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
+          <input ref={input => this.max_yays = input} name="max_yays" type="number" /> Max Yays
+          <button onClick={this.deploy}>Deploy</button>
+        </form>
       </div>
     );
   }
