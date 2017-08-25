@@ -2,7 +2,6 @@ var exec = require('child_process').exec
 var fs = require('fs');
 
 var gulp = require('gulp');
-var gulpsync = require('gulp-sync')(gulp)
 var gutil = require('gulp-util');
 
 var LIB_PATH = [
@@ -18,7 +17,6 @@ var LIB_PATH = [
 ];
 var JSON_OUT = 'src/config/';
 
-gulp.task('default', gulpsync.sync(['build', 'generate']));
 
 gulp.task('build', (cb) => {
   LIB_PATH.forEach(path => {
@@ -35,7 +33,7 @@ gulp.task('build', (cb) => {
   cb();
 });
 
-gulp.task('generate', (cb) => {
+gulp.task('generate', ['build'], (cb) => {
   if (!fs.existsSync(JSON_OUT)){
     fs.mkdirSync(JSON_OUT);
   }
@@ -58,4 +56,6 @@ gulp.task('generate', (cb) => {
       }
     });
   });
-})
+});
+
+gulp.task('default', ['build', 'generate']);
