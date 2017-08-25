@@ -47,10 +47,10 @@ class App extends Component {
     //   });
     // }
     try {
-      var token1 = await this.deployToken();
-      var token2 = await this.deployToken();
-      console.log(token1);
-      console.log(token2);
+      var token1 = await this.deployToken('0x474f560000000000000000000000000000000000000000000000000000000000'); // symbol = GOV
+      var token2 = await this.deployToken('0x494f550000000000000000000000000000000000000000000000000000000000'); // symbol = IOU
+      console.log('GOV:', token1);
+      console.log('IOU:', token2);
     } catch (e) {
       console.log(e);
     }
@@ -60,10 +60,10 @@ class App extends Component {
     return Promise.resolve(this.deployToken());
   }
 
-  deployToken = () => {
+  deployToken = (symbol) => {
     return new Promise((resolve, reject) => {
-      tokenFab.new({bytecode: dstoken.bytecode, gas: 2000000}, (error, tx) => {
-        if (tx) {
+      tokenFab.new(symbol, {data: dstoken.bytecode, gas: 2000000}, (error, tx) => {
+        if (!error && tx) {
           web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
             if (!err) {
               if (res && res.contractAddress) {
