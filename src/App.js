@@ -7,16 +7,19 @@ const web3 = new Web3();
 
 var dschief = require('./config/dschief.json');
 var dstoken = require('./config/dstoken.json');
-var chiefFab = web3.eth.contract(dschief.abi);
-var tokenFab = web3.eth.contract(dstoken.abi);
+var chiefContract = web3.eth.contract(dschief.abi);
+var tokenContract = web3.eth.contract(dstoken.abi);
 window.dschief = dschief;
 window.dstoken = dstoken;
-window.chiefFab = chiefFab;
-window.tokenFab = tokenFab;
+window.chiefContract = chiefContract;
+window.tokenContract = tokenContract;
 window.l = console.log;
 
 class App extends Component {
   state = {
+    gov: null,
+    iou: null,
+    chief: null,
     account: null
   }
 
@@ -35,6 +38,18 @@ class App extends Component {
           });
         }
       });
+
+      const gov = window.localStorage.getItem('gov');
+      const iou = window.localStorage.getItem('iou');
+      const chief = window.localStorage.getItem('chief');
+      window.chiefObj = this.chiefObj = chiefContract.at(chief);
+      if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
+        this.setState({ gov, iou, chief }, () => {
+          // this.chiefObj.LogNote({}, {fromBlock: 0}, (e, r) => {
+          //   console.log(r)
+          // });
+        });
+      }
     }, 500);
   }
 
@@ -48,6 +63,13 @@ class App extends Component {
         console.log('IOU:', iou);
         const chief = await this.deployChief(gov, iou, this.max_yays.value);
         console.log('Chief:', chief);
+        if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
+          window.localStorage.setItem('gov', gov);
+          window.localStorage.setItem('iou', iou);
+          window.localStorage.setItem('chief', chief);
+          window.chiefObj = this.chiefObj = chiefContract.at(chief);
+          this.setState({ gov, iou, chief });
+        }
       } catch (e) {
         console.log(e);
       }
@@ -76,7 +98,7 @@ class App extends Component {
 
   deployToken = (symbol) => {
     return new Promise((resolve, reject) => {
-      tokenFab.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (error, tx) => {
+      tokenContract.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (error, tx) => {
         this.checkDeployedAddress(resolve, reject, error, tx);
       });
     })
@@ -84,13 +106,16 @@ class App extends Component {
 
   deployChief = (gov, iou, max) => {
     return new Promise((resolve, reject) => {
-      chiefFab.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (error, tx) => {
+      chiefContract.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (error, tx) => {
         this.checkDeployedAddress(resolve, reject, error, tx);
       });
     })
   }
 
   render() {
+    const gov = this.state.gov;
+    const iou = this.state.iou;
+    const chief = this.state.chief;
     return (
       <div className="App">
         <div className="App-header">
@@ -100,11 +125,16 @@ class App extends Component {
         <p className="App-intro">
           To get started, edit <code>src/App.js</code> and save to reload.
         </p>
-        <p>{this.state.account}</p>
+        <p>Your account: { this.state.account }</p>
+        <p>Create new set of contracts</p>
         <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
           <input ref={input => this.max_yays = input} name="max_yays" type="number" /> Max Yays
           <button onClick={this.deploy}>Deploy</button>
         </form>
+        <p>Actual contracts:</p>
+        <p>Gov: { gov }</p>
+        <p>Iou: { iou }</p>
+        <p>Chief: { chief }</p>
       </div>
     );
   }
