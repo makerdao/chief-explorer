@@ -40,19 +40,17 @@ class App extends Component {
 
   deploy = async (e) => {
     e.preventDefault();
-    // if (this.max_yays.value) {
-    //   this.doDeploy(this.max_yays.value)
-    //   .then(res => {
-    //     //console.log(res);
-    //   });
-    // }
-    try {
-      var token1 = await this.deployToken('0x474f560000000000000000000000000000000000000000000000000000000000'); // symbol = GOV
-      var token2 = await this.deployToken('0x494f550000000000000000000000000000000000000000000000000000000000'); // symbol = IOU
-      console.log('GOV:', token1);
-      console.log('IOU:', token2);
-    } catch (e) {
-      console.log(e);
+    if (this.max_yays.value) {
+      try {
+        const gov = await this.deployToken('0x474f560000000000000000000000000000000000000000000000000000000000'); // symbol = GOV
+        console.log('GOV:', gov);
+        const iou = await this.deployToken('0x494f550000000000000000000000000000000000000000000000000000000000'); // symbol = IOU
+        console.log('IOU:', iou);
+        const chief = await this.deployChief(gov, iou, this.max_yays.value);
+        console.log('Chief:', chief);
+      } catch (e) {
+        console.log(e);
+      }
     }
   }
 
@@ -60,22 +58,34 @@ class App extends Component {
     return Promise.resolve(this.deployToken());
   }
 
+  checkDeployedAddress = (resolve, reject, error, tx) => {
+    if (!error && tx) {
+      web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
+        if (!err) {
+          if (res && res.contractAddress) {
+            resolve(res.contractAddress);
+          }
+        } else {
+          reject(err);
+        }
+      });
+    } else {
+      reject(error);
+    }
+  }
+
   deployToken = (symbol) => {
     return new Promise((resolve, reject) => {
-      tokenFab.new(symbol, {data: dstoken.bytecode, gas: 2000000}, (error, tx) => {
-        if (!error && tx) {
-          web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
-            if (!err) {
-              if (res && res.contractAddress) {
-                resolve(res.contractAddress);
-              }
-            } else {
-              reject(err);
-            }
-          });
-        } else {
-          reject(error);
-        }
+      tokenFab.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (error, tx) => {
+        this.checkDeployedAddress(resolve, reject, error, tx);
+      });
+    })
+  }
+
+  deployChief = (gov, iou, max) => {
+    return new Promise((resolve, reject) => {
+      chiefFab.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (error, tx) => {
+        this.checkDeployedAddress(resolve, reject, error, tx);
       });
     })
   }
