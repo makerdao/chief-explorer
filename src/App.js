@@ -20,6 +20,7 @@ class App extends Component {
     gov: null,
     iou: null,
     chief: null,
+    candidates: {},
     account: null
   }
 
@@ -45,12 +46,26 @@ class App extends Component {
       window.chiefObj = this.chiefObj = chiefContract.at(chief);
       if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
         this.setState({ gov, iou, chief }, () => {
-          // this.chiefObj.LogNote({}, {fromBlock: 0}, (e, r) => {
-          //   console.log(r)
-          // });
+          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])')] }, { fromBlock: 0 }, (e, r) => {
+            if (!e) {
+              const addressesString = r.args.fax.substring(138);
+              this.setState((prevState, props) => {
+                const candidates = {...prevState.candidates};
+                for (let i = 0; i < addressesString.length / 64; i++) {
+                  const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : 0;
+                }
+                return { candidates };
+              });
+            }
+          });
         });
       }
     }, 500);
+  }
+
+  methodSig = (method) => {
+    return web3.sha3(method).substring(0, 10)
   }
 
   deploy = async (e) => {
