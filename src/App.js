@@ -20,6 +20,7 @@ class App extends Component {
     gov: null,
     iou: null,
     chief: null,
+    slates: [],
     candidates: {},
     account: null
   }
@@ -44,18 +45,39 @@ class App extends Component {
       const iou = window.localStorage.getItem('iou');
       const chief = window.localStorage.getItem('chief');
       window.chiefObj = this.chiefObj = chiefContract.at(chief);
+      window.govObj = this.govObj = tokenContract.at(gov);
+      window.iouObj = this.iouObj = tokenContract.at(iou);
       if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
         this.setState({ gov, iou, chief }, () => {
-          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])')] }, { fromBlock: 0 }, (e, r) => {
+          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), /*this.methodSig('vote(address[],address)')*/] }, { fromBlock: 0 }, (e, r) => {
             if (!e) {
               const addressesString = r.args.fax.substring(138);
               this.setState((prevState, props) => {
                 const candidates = {...prevState.candidates};
+                const slates = {...prevState.slates};
+                const addresses = [];
+                let slateHashAddress = '';
                 for (let i = 0; i < addressesString.length / 64; i++) {
                   const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : 0;
+                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+                  addresses.push(address);
+                  slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
                 }
-                return { candidates };
+                slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+                return { candidates, slates };
+              }, () => {
+                Object.keys(this.state.candidates).map(key => {
+                  this.chiefObj.approvals(key, (e2, r2) => {
+                    if (!e2) {
+                      this.setState((prevState, props) => {
+                        const candidates = {...prevState.candidates};
+                        candidates[key] = r2;
+                        return { candidates };
+                      });
+                    }
+                  });
+                  return false;
+                });
               });
             }
           });
@@ -79,10 +101,13 @@ class App extends Component {
         const chief = await this.deployChief(gov, iou, this.max_yays.value);
         console.log('Chief:', chief);
         if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
+          this.setOwnership(iou, chief);
           window.localStorage.setItem('gov', gov);
           window.localStorage.setItem('iou', iou);
           window.localStorage.setItem('chief', chief);
           window.chiefObj = this.chiefObj = chiefContract.at(chief);
+          window.govObj = this.govObj = tokenContract.at(gov);
+          window.iouObj = this.iouObj = tokenContract.at(iou);
           this.setState({ gov, iou, chief });
         }
       } catch (e) {
@@ -127,6 +152,26 @@ class App extends Component {
     })
   }
 
+  setOwnership = (iou, chief) => {
+    return new Promise((resolve, reject) => {
+      tokenContract.at(iou).setOwner(chief, (error, tx) => {
+        if (!error) {
+          resolve(tx);
+        } else {
+          reject(error);
+        }
+      });
+    })
+  }
+
+  vote = (e) => {
+    e.preventDefault();
+    this.chiefObj.vote.bytes32(e.target.getAttribute('data-slate'), (e, tx) => {
+      console.log(tx);
+    });
+    return false;
+  }
+
   render() {
     const gov = this.state.gov;
     const iou = this.state.iou;
@@ -150,6 +195,62 @@ class App extends Component {
         <p>Gov: { gov }</p>
         <p>Iou: { iou }</p>
         <p>Chief: { chief }</p>
+        <p>Slates:</p>
+        <table>
+          <thead>
+            <tr>
+              <th>
+                Slate
+              </th>
+              <th>
+                Addresses
+              </th>
+              <th>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              Object.keys(this.state.slates).map(key =>
+                <tr key={ key }>
+                  <td>
+                    { key.substring(0,10) }...
+                  </td>
+                  <td>
+                    {
+                      this.state.slates[key].map(value => <p key={ value }>{ value }</p>)
+                    }
+                  </td>
+                  <td>
+                    <a data-slate={ key } href="#vote" onClick={ this.vote }>Vote this</a>
+                  </td>
+                </tr>
+              )
+            }
+          </tbody>
+        </table>
+        <table>
+          <thead>
+            <tr>
+              <th>
+                Candidate
+              </th>
+              <th>
+                Weigth
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+          {
+            Object.keys(this.state.candidates).map(key =>
+              <tr key={ key }>
+                <td>{ key }</td>
+                <td>{ this.state.candidates[key].toNumber() }</td>
+              </tr>
+            )
+          }
+          </tbody>
+        </table>
       </div>
     );
   }
