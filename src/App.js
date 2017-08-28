@@ -1,5 +1,4 @@
 import React, { Component } from 'react';
-import logo from './logo.svg';
 import './App.css';
 import Web3 from 'web3';
 
@@ -22,6 +21,8 @@ class App extends Component {
     chief: null,
     slates: [],
     candidates: {},
+    slateVoted: null,
+    hat: null,
     account: null
   }
 
@@ -49,9 +50,12 @@ class App extends Component {
       window.iouObj = this.iouObj = tokenContract.at(iou);
       if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
         this.setState({ gov, iou, chief }, () => {
-          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), /*this.methodSig('vote(address[],address)')*/] }, { fromBlock: 0 }, (e, r) => {
+          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
             if (!e) {
-              const addressesString = r.args.fax.substring(138);
+              const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+              if(r.args.sig === '0x76855178') {
+                console.log(r.args)
+              }
               this.setState((prevState, props) => {
                 const candidates = {...prevState.candidates};
                 const slates = {...prevState.slates};
@@ -66,21 +70,19 @@ class App extends Component {
                 slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
                 return { candidates, slates };
               }, () => {
-                Object.keys(this.state.candidates).map(key => {
-                  this.chiefObj.approvals(key, (e2, r2) => {
-                    if (!e2) {
-                      this.setState((prevState, props) => {
-                        const candidates = {...prevState.candidates};
-                        candidates[key] = r2;
-                        return { candidates };
-                      });
-                    }
-                  });
-                  return false;
-                });
+                this.getApprovals();
               });
+              this.getVoted();
+              this.getHat();
             }
           });
+        });
+        this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getHat();
+        });
+        this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getVoted();
+          this.getApprovals();
         });
       }
     }, 500);
@@ -88,6 +90,37 @@ class App extends Component {
 
   methodSig = (method) => {
     return web3.sha3(method).substring(0, 10)
+  }
+
+  getApprovals = () => {
+    Object.keys(this.state.candidates).map(key => {
+      this.chiefObj.approvals(key, (e2, r2) => {
+        if (!e2) {
+          this.setState((prevState, props) => {
+            const candidates = {...prevState.candidates};
+            candidates[key] = r2;
+            return { candidates };
+          });
+        }
+      });
+      return false;
+    });
+  }
+
+  getVoted = () => {
+    this.chiefObj.votes(this.state.account, (e, r) => {
+      if (!e) {
+        this.setState({ slateVoted: r })
+      }
+    });
+  }
+
+  getHat = () => {
+    this.chiefObj.hat((e, r) => {
+      if (!e) {
+        this.setState({ hat: r })
+      }
+    });
   }
 
   deploy = async (e) => {
@@ -164,7 +197,7 @@ class App extends Component {
     })
   }
 
-  vote = (e) => {
+  voteSlate = (e) => {
     e.preventDefault();
     this.chiefObj.vote.bytes32(e.target.getAttribute('data-slate'), (e, tx) => {
       console.log(tx);
@@ -172,19 +205,21 @@ class App extends Component {
     return false;
   }
 
+  createSlate = (e) => {
+    e.preventDefault();
+    const method = this.method.value;
+    const addresses = this.addresses.value.replace(/\s/g,'').split(',').sort();
+
+    this.chiefObj[method]['address[]'](addresses, (e, tx) => {
+      console.log(tx);
+    });
+    return false;
+  }
+
   render() {
-    const gov = this.state.gov;
-    const iou = this.state.iou;
-    const chief = this.state.chief;
     return (
       <div className="App">
-        <div className="App-header">
-          <img src={logo} className="App-logo" alt="logo" />
-          <h2>Welcome to React</h2>
-        </div>
-        <p className="App-intro">
-          To get started, edit <code>src/App.js</code> and save to reload.
-        </p>
+        <h2>DS Chief</h2>
         <p>Your account: { this.state.account }</p>
         <p>Create new set of contracts</p>
         <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
@@ -192,10 +227,13 @@ class App extends Component {
           <button onClick={this.deploy}>Deploy</button>
         </form>
         <p>Actual contracts:</p>
-        <p>Gov: { gov }</p>
-        <p>Iou: { iou }</p>
-        <p>Chief: { chief }</p>
-        <p>Slates:</p>
+        <p>Gov: { this.state.gov }</p>
+        <p>Iou: { this.state.iou }</p>
+        <p>Chief: { this.state.chief }</p>
+        <br />
+        <p>Hat: { this.state.hat }</p>
+        <br />
+        <p>Slates Created:</p>
         <table>
           <thead>
             <tr>
@@ -222,13 +260,29 @@ class App extends Component {
                     }
                   </td>
                   <td>
-                    <a data-slate={ key } href="#vote" onClick={ this.vote }>Vote this</a>
+                    {
+                      this.state.slateVoted === key
+                      ? 'Voted'
+                      : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
+                    }
                   </td>
                 </tr>
               )
             }
           </tbody>
         </table>
+        <br />
+        <form ref={(input) => this.createSlateForm = input} onSubmit={(e) => this.createSlate(e)}>
+          <p>New slate</p>
+          <input ref={(input) => this.addresses = input} type="value" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
+          <select ref={(input) => this.method = input} >
+            <option value="vote">Create and vote</option>
+            <option value="etch">Just create</option>
+          </select>
+          <input type="submit" />
+        </form>
+        <br />
+        <p>Candidates Ranking:</p>
         <table>
           <thead>
             <tr>
@@ -236,7 +290,7 @@ class App extends Component {
                 Candidate
               </th>
               <th>
-                Weigth
+                Weight
               </th>
             </tr>
           </thead>
