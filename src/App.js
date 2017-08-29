@@ -133,77 +133,80 @@ class App extends Component {
     }, 500);
   }
 
-  initContract = () => {
-    const gov = window.localStorage.getItem('gov');
-    const iou = window.localStorage.getItem('iou');
+  initContract = async () => {
+    web3.reset(true);
     const chief = window.localStorage.getItem('chief');
-    window.chiefObj = this.chiefObj = chiefContract.at(chief);
-    window.govObj = this.govObj = tokenContract.at(gov);
-    window.iouObj = this.iouObj = tokenContract.at(iou);
-    if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
-      this.getGOVBalance();
-      this.getGOVAllowance();
-      this.getIOUBalance();
-      this.getIOUAllowance();
-      this.getMyVote();
-      this.getHat();
-      this.setState({ gov, iou, chief }, () => {
-        this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
-          if (!e) {
-            const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-            this.setState((prevState, props) => {
-              const candidates = {...prevState.candidates};
-              const slates = {...prevState.slates};
-              const addresses = [];
-              let slateHashAddress = '';
-              for (let i = 0; i < addressesString.length / 64; i++) {
-                const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-                addresses.push(address);
-                slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-              }
-              slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-              return { candidates, slates };
-            }, () => {
-              this.getApprovals();
-            });
-          }
-        });
-      });
-      this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
-        this.getHat();
-        this.logTransactionConfirmed(r.transactionHash);
-      });
-      this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
-        this.getMyVote();
-        this.getApprovals();
-        this.logTransactionConfirmed(r.transactionHash);
-      });
-      this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
-        this.getIOUBalance();
-        this.getIOUAllowance();
-        this.getApprovals();
-      });
-      this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
-                                  this.methodSig('transferFrom(address,address,uint256)'),
-                                  this.methodSig('push(address,uint128)'),
-                                  this.methodSig('pull(address,uint128)'),
-                                  this.methodSig('mint(uint128)'),
-                                  this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+    if (chief  && web3.isAddress(chief)) {
+      window.chiefObj = this.chiefObj = chiefContract.at(chief);
+      const gov = await this.getToken('GOV');
+      const iou = await this.getToken('IOU');
+      if (gov && iou && web3.isAddress(gov) && web3.isAddress(iou)) {
+        window.govObj = this.govObj = tokenContract.at(gov);
+        window.iouObj = this.iouObj = tokenContract.at(iou);
         this.getGOVBalance();
         this.getGOVAllowance();
-        this.logTransactionConfirmed(r.transactionHash);
-      });
-      this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
-        this.getGOVAllowance();
-        this.logTransactionConfirmed(r.transactionHash);
-      });
-      this.iouObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+        this.getIOUBalance();
         this.getIOUAllowance();
-        this.logTransactionConfirmed(r.transactionHash);
-      });
-      // This is necessary to finish transactions that failed after signing
-      this.checkPendingTransactionsInterval = setInterval(this.checkPendingTransactions, 10000);
+        this.getMyVote();
+        this.getHat();
+        this.setState({ gov, iou, chief }, () => {
+          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
+            if (!e) {
+              const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+              this.setState((prevState, props) => {
+                const candidates = {...prevState.candidates};
+                const slates = {...prevState.slates};
+                const addresses = [];
+                let slateHashAddress = '';
+                for (let i = 0; i < addressesString.length / 64; i++) {
+                  const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+                  addresses.push(address);
+                  slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+                }
+                slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+                return { candidates, slates };
+              }, () => {
+                this.getApprovals();
+              });
+            }
+          });
+        });
+        this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getHat();
+          this.logTransactionConfirmed(r.transactionHash);
+        });
+        this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getMyVote();
+          this.getApprovals();
+          this.logTransactionConfirmed(r.transactionHash);
+        });
+        this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+          this.getIOUBalance();
+          this.getIOUAllowance();
+          this.getApprovals();
+        });
+        this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
+                                    this.methodSig('transferFrom(address,address,uint256)'),
+                                    this.methodSig('push(address,uint128)'),
+                                    this.methodSig('pull(address,uint128)'),
+                                    this.methodSig('mint(uint128)'),
+                                    this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+          this.getGOVBalance();
+          this.getGOVAllowance();
+          this.logTransactionConfirmed(r.transactionHash);
+        });
+        this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getGOVAllowance();
+          this.logTransactionConfirmed(r.transactionHash);
+        });
+        this.iouObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getIOUAllowance();
+          this.logTransactionConfirmed(r.transactionHash);
+        });
+        // This is necessary to finish transactions that failed after signing
+        this.checkPendingTransactionsInterval = setInterval(this.checkPendingTransactions, 10000);
+      }
     }
   }
 
@@ -260,6 +263,18 @@ class App extends Component {
     }
   }
   //
+
+  getToken = (token) => {
+    return new Promise((resolve, reject) => {
+      this.chiefObj[token]((e, r) => {
+        if (!e) {
+          resolve(r);
+        } else {
+          reject(e);
+        }
+      });
+    })
+  }
 
   getApprovals = () => {
     Object.keys(this.state.candidates).map(key => {
@@ -327,6 +342,19 @@ class App extends Component {
   //
 
   // Actions
+  load = (e) => {
+    e.preventDefault();
+    const chief = this.chiefAddress.value;
+    if (chief && web3.isAddress(chief)) {
+      try {
+        window.localStorage.setItem('chief', chief);
+        this.initContract();
+      } catch (e) {
+        console.log(e);
+      }
+    }
+  }
+
   deploy = async (e) => {
     e.preventDefault();
     if (this.max_yays.value) {
@@ -339,22 +367,13 @@ class App extends Component {
         console.log('Chief:', chief);
         if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
           this.setOwnership(iou, chief);
-          window.localStorage.setItem('gov', gov);
-          window.localStorage.setItem('iou', iou);
           window.localStorage.setItem('chief', chief);
-          window.chiefObj = this.chiefObj = chiefContract.at(chief);
-          window.govObj = this.govObj = tokenContract.at(gov);
-          window.iouObj = this.iouObj = tokenContract.at(iou);
-          this.setState({ gov, iou, chief });
+          this.initContract();
         }
       } catch (e) {
         console.log(e);
       }
     }
-  }
-
-  doDeploy = (max_yays) => {
-    return Promise.resolve(this.deployToken());
   }
 
   checkDeployedAddress = (resolve, reject, error, tx) => {
@@ -460,21 +479,10 @@ class App extends Component {
   }
   //
 
-  render() {
-    return (
-      <div className="App">
-        <h2>DS Chief</h2>
-        <p>Your account: { this.state.network.defaultAccount }</p>
-        <p>Create new set of contracts</p>
-        <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
-          <input ref={input => this.max_yays = input} name="max_yays" type="number" /> Max Yays
-          <button onClick={this.deploy}>Deploy</button>
-        </form>
-        <p>Actual contracts:</p>
-        <p>Gov: { this.state.gov }</p>
-        <p>Iou: { this.state.iou }</p>
-        <p>Chief: { this.state.chief }</p>
-        <br />
+  renderChiefData = () => {
+    return(
+      <div>
+        <hr />
         <p>
           GOV Balance:&nbsp;
           {
@@ -513,9 +521,9 @@ class App extends Component {
               : <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a></span>
           }
         </p>
-        <br />
+        <hr />
         <form ref={(input) => this.lockFreeForm = input} onSubmit={(e) => this.lockFree(e)}>
-          <p>Lock/Free GOV</p>
+          <p style={ {textDecoration: 'underline'} }>Lock/Free GOV</p>
           <input ref={(input) => this.amount = input} type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
           <select ref={(input) => this.methodLF = input} >
             <option value="lock">Lock</option>
@@ -526,7 +534,7 @@ class App extends Component {
         <br />
         <p>Hat: { this.state.hat }</p>
         <hr />
-        <p>Slates Created:</p>
+        <p style={ {textDecoration: 'underline'} }>Slates Created</p>
         <table>
           <thead>
             <tr>
@@ -575,7 +583,7 @@ class App extends Component {
           <input type="submit" />
         </form>
         <hr />
-        <p>Candidates Ranking:</p>
+        <p style={ {textDecoration: 'underline'} }>Candidates Ranking</p>
         <table>
           <thead>
             <tr>
@@ -601,6 +609,36 @@ class App extends Component {
           }
           </tbody>
         </table>
+      </div>
+    )
+  } 
+
+  render() {
+    return (
+      <div className="App">
+        <h2>Chief Explorer</h2>
+        <p>Your account: { this.state.network.defaultAccount }</p>
+        <p>Actual contracts:</p>
+        <p>Chief: { this.state.chief }</p>
+        <p>GOV Token: { this.state.gov }</p>
+        <p>IOU Token: { this.state.iou }</p>
+        <hr />
+        <p>Create new Chief contract (will deploy a test GOV Token)</p>
+        <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
+          <input ref={input => this.max_yays = input} name="max_yays" type="text" placeholder="Max yays" />
+          <input type="submit"/>
+        </form>
+        <hr />
+        <p>Load { this.state.chief ? 'another ': ''}Chief contract</p>
+        <form ref={input => this.loadForm = input} onSubmit={e => this.load(e)}>
+          <input ref={input => this.chiefAddress = input} name="chief" type="text" placeholder="Chief address" />
+          <input type="submit" />
+        </form>
+        {
+          this.state.chief
+          ? this.renderChiefData()
+          : ''
+        }
         <ReactNotify ref='notificator'/>
       </div>
     );
