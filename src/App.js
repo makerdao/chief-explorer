@@ -80,7 +80,6 @@ class App extends Component {
             }, () => {
               this.getApprovals();
             });
-
           }
         });
       });
@@ -93,6 +92,7 @@ class App extends Component {
       });
       this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
         this.getGOVLocked();
+        this.getApprovals();
       });
       this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
                                   this.methodSig('transferFrom(address,address,uint256)'),
@@ -258,6 +258,14 @@ class App extends Component {
     return false;
   }
 
+  liftCandidate = (e) => {
+    e.preventDefault();
+    this.chiefObj.lift(e.target.getAttribute('data-address'), (e, tx) => {
+      console.log(tx);
+    });
+    return false;
+  }
+
   render() {
     return (
       <div className="App">
@@ -347,6 +355,8 @@ class App extends Component {
               <th>
                 Weight
               </th>
+              <th>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -355,6 +365,7 @@ class App extends Component {
               <tr key={ key }>
                 <td>{ key }</td>
                 <td>{ web3.fromWei(this.state.candidates[key]).valueOf() }</td>
+                <td>{ this.state.candidates[key] > this.state.candidates[this.state.hat] ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : '' }</td>
               </tr>
             )
           }
