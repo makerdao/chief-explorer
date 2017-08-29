@@ -656,6 +656,7 @@ class App extends Component {
     return (
       <div className="App">
         <h2>Chief Explorer</h2>
+        <p>Network: { this.state.network.network }</p>
         <p>Your account: { this.state.network.defaultAccount }</p>
         <p>Actual contracts:</p>
         <p>Chief: { etherscanAddress(this.state.network.network, this.state.chief, this.state.chief) }</p>
