@@ -2,7 +2,7 @@ import React, { Component } from 'react';
 import './App.css';
 import web3, { initWeb3 } from './web3';
 import ReactNotify from './notify';
-import { etherscanTx } from './helpers';
+import { etherscanTx, etherscanAddress, etherscanToken } from './helpers';
 
 var dschief = require('./config/dschief.json');
 var dstoken = require('./config/dstoken.json');
@@ -15,22 +15,31 @@ window.tokenContract = tokenContract;
 window.l = console.log;
 
 class App extends Component {
-  state = {
-    gov: null,
-    iou: null,
-    chief: null,
-    slates: [],
-    candidates: {},
-    myVote: null,
-    GOVBalance: web3.toBigNumber(-1),
-    GOVAllowance: web3.toBigNumber(-1),
-    IOUBalance: web3.toBigNumber(-1),
-    IOUAllowance: web3.toBigNumber(-1),
-    hat: null,
-    account: null,
-    transactions: {},
-    network: {
-    },
+  constructor() {
+    super();
+    const initialState = this.getInitialState();
+    this.state = {
+      ...initialState,
+      transactions: {},
+      network: {},
+    }
+  }
+
+  getInitialState = () => {
+    return {
+      gov: null,
+      iou: null,
+      chief: null,
+      slates: [],
+      candidates: {},
+      myVote: null,
+      GOVBalance: web3.toBigNumber(-1),
+      GOVAllowance: web3.toBigNumber(-1),
+      IOUBalance: web3.toBigNumber(-1),
+      IOUAllowance: web3.toBigNumber(-1),
+      max_yays: web3.toBigNumber(-1),
+      hat: null,
+    };
   }
 
   checkNetwork = () => {
@@ -133,81 +142,87 @@ class App extends Component {
     }, 500);
   }
 
-  initContract = async () => {
+  initContract = () => {
     web3.reset(true);
-    const chief = window.localStorage.getItem('chief');
-    if (chief  && web3.isAddress(chief)) {
-      window.chiefObj = this.chiefObj = chiefContract.at(chief);
-      const gov = await this.getToken('GOV');
-      const iou = await this.getToken('IOU');
-      if (gov && iou && web3.isAddress(gov) && web3.isAddress(iou)) {
-        window.govObj = this.govObj = tokenContract.at(gov);
-        window.iouObj = this.iouObj = tokenContract.at(iou);
-        this.getGOVBalance();
-        this.getGOVAllowance();
-        this.getIOUBalance();
-        this.getIOUAllowance();
-        this.getMyVote();
-        this.getHat();
-        this.setState({ gov, iou, chief }, () => {
-          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
-            if (!e) {
-              const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-              this.setState((prevState, props) => {
-                const candidates = {...prevState.candidates};
-                const slates = {...prevState.slates};
-                const addresses = [];
-                let slateHashAddress = '';
-                for (let i = 0; i < addressesString.length / 64; i++) {
-                  const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-                  addresses.push(address);
-                  slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-                }
-                slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-                return { candidates, slates };
-              }, () => {
-                this.getApprovals();
-              });
-            }
-          });
-        });
-        this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
-          this.getHat();
-          this.logTransactionConfirmed(r.transactionHash);
-        });
-        this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
-          this.getMyVote();
-          this.getApprovals();
-          this.logTransactionConfirmed(r.transactionHash);
-        });
-        this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
-          this.getIOUBalance();
-          this.getIOUAllowance();
-          this.getApprovals();
-        });
-        this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
-                                    this.methodSig('transferFrom(address,address,uint256)'),
-                                    this.methodSig('push(address,uint128)'),
-                                    this.methodSig('pull(address,uint128)'),
-                                    this.methodSig('mint(uint128)'),
-                                    this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+    const initialState = this.getInitialState();
+    this.setState({
+      ...initialState
+    }, async () => {
+      const chief = window.localStorage.getItem('chief');
+      if (chief  && web3.isAddress(chief)) {
+        window.chiefObj = this.chiefObj = chiefContract.at(chief);
+        const gov = await this.getToken('GOV');
+        const iou = await this.getToken('IOU');
+        if (gov && iou && web3.isAddress(gov) && web3.isAddress(iou)) {
+          window.govObj = this.govObj = tokenContract.at(gov);
+          window.iouObj = this.iouObj = tokenContract.at(iou);
           this.getGOVBalance();
           this.getGOVAllowance();
-          this.logTransactionConfirmed(r.transactionHash);
-        });
-        this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
-          this.getGOVAllowance();
-          this.logTransactionConfirmed(r.transactionHash);
-        });
-        this.iouObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+          this.getIOUBalance();
           this.getIOUAllowance();
-          this.logTransactionConfirmed(r.transactionHash);
-        });
-        // This is necessary to finish transactions that failed after signing
-        this.checkPendingTransactionsInterval = setInterval(this.checkPendingTransactions, 10000);
+          this.getMyVote();
+          this.getMaxYays();
+          this.getHat();
+          this.setState({ gov, iou, chief }, () => {
+            this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
+              if (!e) {
+                const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+                this.setState((prevState, props) => {
+                  const candidates = {...prevState.candidates};
+                  const slates = {...prevState.slates};
+                  const addresses = [];
+                  let slateHashAddress = '';
+                  for (let i = 0; i < addressesString.length / 64; i++) {
+                    const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+                    candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+                    addresses.push(address);
+                    slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+                  }
+                  slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+                  return { candidates, slates };
+                }, () => {
+                  this.getApprovals();
+                });
+              }
+            });
+          });
+          this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
+            this.getHat();
+            this.logTransactionConfirmed(r.transactionHash);
+          });
+          this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
+            this.getMyVote();
+            this.getApprovals();
+            this.logTransactionConfirmed(r.transactionHash);
+          });
+          this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+            this.getIOUBalance();
+            this.getIOUAllowance();
+            this.getApprovals();
+          });
+          this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
+                                      this.methodSig('transferFrom(address,address,uint256)'),
+                                      this.methodSig('push(address,uint128)'),
+                                      this.methodSig('pull(address,uint128)'),
+                                      this.methodSig('mint(uint128)'),
+                                      this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+            this.getGOVBalance();
+            this.getGOVAllowance();
+            this.logTransactionConfirmed(r.transactionHash);
+          });
+          this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+            this.getGOVAllowance();
+            this.logTransactionConfirmed(r.transactionHash);
+          });
+          this.iouObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+            this.getIOUAllowance();
+            this.logTransactionConfirmed(r.transactionHash);
+          });
+          // This is necessary to finish transactions that failed after signing
+          this.checkPendingTransactionsInterval = setInterval(this.checkPendingTransactions, 10000);
+        }
       }
-    }
+    });
   }
 
   methodSig = (method) => {
@@ -332,6 +347,14 @@ class App extends Component {
     });
   }
 
+  getMaxYays = () => {
+    this.chiefObj.MAX_YAYS((e, r) => {
+      if (!e) {
+        this.setState({ max_yays: r })
+      }
+    });
+  }
+
   getHat = () => {
     this.chiefObj.hat((e, r) => {
       if (!e) {
@@ -359,7 +382,9 @@ class App extends Component {
     e.preventDefault();
     if (this.max_yays.value) {
       try {
-        const gov = await this.deployToken('0x474f560000000000000000000000000000000000000000000000000000000000'); // symbol = GOV
+        const gov = this.govAddress.value && web3.isAddress(this.govAddress.value)
+                    ? this.govAddress.value
+                    : await this.deployToken('0x474f560000000000000000000000000000000000000000000000000000000000'); // symbol = GOV
         console.log('GOV:', gov);
         const iou = await this.deployToken('0x494f550000000000000000000000000000000000000000000000000000000000'); // symbol = IOU
         console.log('IOU:', iou);
@@ -381,6 +406,7 @@ class App extends Component {
       web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
         if (!err) {
           if (res && res.contractAddress) {
+            this.logTransactionConfirmed(tx.transactionHash);
             resolve(res.contractAddress);
           }
         } else {
@@ -395,6 +421,7 @@ class App extends Component {
   deployToken = (symbol) => {
     return new Promise((resolve, reject) => {
       tokenContract.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (error, tx) => {
+        this.logPendingTransaction(tx.transactionHash, `deploy: ${web3.toAscii(symbol)}`);
         this.checkDeployedAddress(resolve, reject, error, tx);
       });
     })
@@ -403,6 +430,7 @@ class App extends Component {
   deployChief = (gov, iou, max) => {
     return new Promise((resolve, reject) => {
       chiefContract.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (error, tx) => {
+        this.logPendingTransaction(tx.transactionHash, 'deploy: chief');
         this.checkDeployedAddress(resolve, reject, error, tx);
       });
     })
@@ -412,6 +440,7 @@ class App extends Component {
     return new Promise((resolve, reject) => {
       tokenContract.at(iou).setOwner(chief, (error, tx) => {
         if (!error) {
+          this.logPendingTransaction(tx, 'IOU setOwner Chief');
           resolve(tx);
         } else {
           reject(error);
@@ -482,6 +511,8 @@ class App extends Component {
   renderChiefData = () => {
     return(
       <div>
+        <p>Max yays: { this.state.max_yays.eq(-1) ? 'Loading...' : this.state.max_yays.valueOf() }</p>
+        <p>Hat: { this.state.hat }</p>
         <hr />
         <p>
           GOV Balance:&nbsp;
@@ -522,17 +553,16 @@ class App extends Component {
           }
         </p>
         <hr />
-        <form ref={(input) => this.lockFreeForm = input} onSubmit={(e) => this.lockFree(e)}>
+        <form ref={ (input) => this.lockFreeForm = input } onSubmit={ e => this.lockFree(e) }>
           <p style={ {textDecoration: 'underline'} }>Lock/Free GOV</p>
-          <input ref={(input) => this.amount = input} type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
-          <select ref={(input) => this.methodLF = input} >
+          <input ref={ (input) => this.amount = input } type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
+          <select ref={ (input) => this.methodLF = input } >
             <option value="lock">Lock</option>
             <option value="free">Free</option>
           </select>
           <input type="submit" />
         </form>
         <br />
-        <p>Hat: { this.state.hat }</p>
         <hr />
         <p style={ {textDecoration: 'underline'} }>Slates Created</p>
         <table>
@@ -573,10 +603,10 @@ class App extends Component {
           </tbody>
         </table>
         <br />
-        <form ref={(input) => this.createSlateForm = input} onSubmit={(e) => this.createSlate(e)}>
+        <form ref={ (input) => this.createSlateForm = input } onSubmit={ e => this.createSlate(e) }>
           <p>New slate</p>
-          <input ref={(input) => this.addresses = input} type="text" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
-          <select ref={(input) => this.methodVE = input} >
+          <input ref={ (input) => this.addresses = input } type="text" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
+          <select ref={ (input) => this.methodVE = input } >
             <option value="vote">Create and vote</option>
             <option value="etch">Just create</option>
           </select>
@@ -619,21 +649,23 @@ class App extends Component {
         <h2>Chief Explorer</h2>
         <p>Your account: { this.state.network.defaultAccount }</p>
         <p>Actual contracts:</p>
-        <p>Chief: { this.state.chief }</p>
-        <p>GOV Token: { this.state.gov }</p>
-        <p>IOU Token: { this.state.iou }</p>
+        <p>Chief: { etherscanAddress(this.state.network.network, this.state.chief, this.state.chief) }</p>
+        <p>GOV Token: { etherscanToken(this.state.network.network, this.state.gov, this.state.gov) }</p>
+        <p>IOU Token: { etherscanToken(this.state.network.network, this.state.iou, this.state.iou) }</p>
         <hr />
-        <p>Create new Chief contract (will deploy a test GOV Token)</p>
-        <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
-          <input ref={input => this.max_yays = input} name="max_yays" type="text" placeholder="Max yays" />
+        <p>Create new Chief contract (If GOV address remains empty or is not a valid address, it will deploy a test token)</p>
+        <form ref={ input => this.deployForm = input } onSubmit={ e => this.deploy(e) }>
+          <input ref={ input => this.govAddress = input } name="gov" type="text" placeholder="GOV Token Address" />
+          <input ref={ input => this.max_yays = input } name="max_yays" type="text" placeholder="Max yays" />
           <input type="submit"/>
         </form>
         <hr />
-        <p>Load { this.state.chief ? 'another ': ''}Chief contract</p>
-        <form ref={input => this.loadForm = input} onSubmit={e => this.load(e)}>
-          <input ref={input => this.chiefAddress = input} name="chief" type="text" placeholder="Chief address" />
+        <p>Load { this.state.chief ? 'another ': '' }Chief contract</p>
+        <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
+          <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
           <input type="submit" />
         </form>
+        <hr />
         {
           this.state.chief
           ? this.renderChiefData()
