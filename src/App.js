@@ -279,6 +279,7 @@ class App extends Component {
   }
   //
 
+  // Getters
   getToken = (token) => {
     return new Promise((resolve, reject) => {
       this.chiefObj[token]((e, r) => {
@@ -306,7 +307,6 @@ class App extends Component {
     });
   }
 
-  // Getters
   getGOVBalance = () => {
     this.govObj.balanceOf(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
@@ -370,6 +370,8 @@ class App extends Component {
     const chief = this.chiefAddress.value;
     if (chief && web3.isAddress(chief)) {
       try {
+        // Reset form value
+        this.chiefAddress.value = null;
         window.localStorage.setItem('chief', chief);
         this.initContract();
       } catch (e) {
@@ -393,6 +395,9 @@ class App extends Component {
         if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
           this.setOwnership(iou, chief);
           window.localStorage.setItem('chief', chief);
+          // Reset form values
+          this.govAddress.value = null;
+          this.max_yays.value = null;
           this.initContract();
         }
       } catch (e) {
@@ -474,6 +479,8 @@ class App extends Component {
     } else {
       this.chiefObj[method](value, (e, tx) => {
         this.logPendingTransaction(tx, `${method}: ${this.amount.value}`);
+        // Reset form value
+        this.amount.value = null;
       });
     }
     return false;
@@ -494,6 +501,8 @@ class App extends Component {
     const addresses = this.addresses.value.replace(/\s/g,'').split(',').sort();
     this.chiefObj[method]['address[]'](addresses, (e, tx) => {
       this.logPendingTransaction(tx, `${method}: ${addresses.join(',')}`);
+      // Reset form value
+      this.addresses.value = null;
     });
     return false;
   }
