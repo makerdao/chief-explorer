@@ -21,7 +21,9 @@ class App extends Component {
     chief: null,
     slates: [],
     candidates: {},
-    slateVoted: null,
+    myVote: null,
+    GOVBalance: web3.toBigNumber(-1),
+    GOVLocked: web3.toBigNumber(-1),
     hat: null,
     account: null
   }
@@ -38,54 +40,69 @@ class App extends Component {
           web3.eth.defaultAccount = r[0] || null;
           this.setState({
             account: r[0] || null
+          }, () => {
+            this.initContract();
           });
         }
       });
-
-      const gov = window.localStorage.getItem('gov');
-      const iou = window.localStorage.getItem('iou');
-      const chief = window.localStorage.getItem('chief');
-      window.chiefObj = this.chiefObj = chiefContract.at(chief);
-      window.govObj = this.govObj = tokenContract.at(gov);
-      window.iouObj = this.iouObj = tokenContract.at(iou);
-      if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
-        this.setState({ gov, iou, chief }, () => {
-          this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
-            if (!e) {
-              const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-              if(r.args.sig === '0x76855178') {
-                console.log(r.args)
-              }
-              this.setState((prevState, props) => {
-                const candidates = {...prevState.candidates};
-                const slates = {...prevState.slates};
-                const addresses = [];
-                let slateHashAddress = '';
-                for (let i = 0; i < addressesString.length / 64; i++) {
-                  const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                  candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-                  addresses.push(address);
-                  slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-                }
-                slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-                return { candidates, slates };
-              }, () => {
-                this.getApprovals();
-              });
-              this.getVoted();
-              this.getHat();
-            }
-          });
-        });
-        this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
-          this.getHat();
-        });
-        this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
-          this.getVoted();
-          this.getApprovals();
-        });
-      }
     }, 500);
+  }
+
+  initContract = () => {
+    const gov = window.localStorage.getItem('gov');
+    const iou = window.localStorage.getItem('iou');
+    const chief = window.localStorage.getItem('chief');
+    window.chiefObj = this.chiefObj = chiefContract.at(chief);
+    window.govObj = this.govObj = tokenContract.at(gov);
+    window.iouObj = this.iouObj = tokenContract.at(iou);
+    if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
+      this.getGOVBalance();
+      this.getGOVLocked();
+      this.getMyVote();
+      this.getHat();
+      this.setState({ gov, iou, chief }, () => {
+        this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
+          if (!e) {
+            const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+            this.setState((prevState, props) => {
+              const candidates = {...prevState.candidates};
+              const slates = {...prevState.slates};
+              const addresses = [];
+              let slateHashAddress = '';
+              for (let i = 0; i < addressesString.length / 64; i++) {
+                const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+                candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+                addresses.push(address);
+                slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+              }
+              slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+              return { candidates, slates };
+            }, () => {
+              this.getApprovals();
+            });
+
+          }
+        });
+      });
+      this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
+        this.getHat();
+      });
+      this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
+        this.getMyVote();
+        this.getApprovals();
+      });
+      this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+        this.getGOVLocked();
+      });
+      this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
+                                  this.methodSig('transferFrom(address,address,uint256)'),
+                                  this.methodSig('push(address,uint128)'),
+                                  this.methodSig('pull(address,uint128)'),
+                                  this.methodSig('mint(uint128)'),
+                                  this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
+        this.getGOVBalance();
+      });
+    }
   }
 
   methodSig = (method) => {
@@ -107,10 +124,26 @@ class App extends Component {
     });
   }
 
-  getVoted = () => {
+  getGOVBalance = () => {
+    this.govObj.balanceOf(this.state.account, (e, r) => {
+      if (!e) {
+        this.setState({ GOVBalance: r })
+      }
+    });
+  }
+
+  getGOVLocked = () => {
+    this.chiefObj.deposits(this.state.account, (e, r) => {
+      if (!e) {
+        this.setState({ GOVLocked: r })
+      }
+    });
+  }
+
+  getMyVote = () => {
     this.chiefObj.votes(this.state.account, (e, r) => {
       if (!e) {
-        this.setState({ slateVoted: r })
+        this.setState({ myVote: r })
       }
     });
   }
@@ -197,6 +230,16 @@ class App extends Component {
     })
   }
 
+  lockFree = (e) => {
+    e.preventDefault();
+    const method = this.methodLF.value;
+    const amount = web3.toWei(this.amount.value);
+    this.chiefObj[method](amount, (e, tx) => {
+      console.log(tx);
+    });
+    return false;
+  }
+
   voteSlate = (e) => {
     e.preventDefault();
     this.chiefObj.vote.bytes32(e.target.getAttribute('data-slate'), (e, tx) => {
@@ -207,9 +250,8 @@ class App extends Component {
 
   createSlate = (e) => {
     e.preventDefault();
-    const method = this.method.value;
+    const method = this.methodVE.value;
     const addresses = this.addresses.value.replace(/\s/g,'').split(',').sort();
-
     this.chiefObj[method]['address[]'](addresses, (e, tx) => {
       console.log(tx);
     });
@@ -230,6 +272,19 @@ class App extends Component {
         <p>Gov: { this.state.gov }</p>
         <p>Iou: { this.state.iou }</p>
         <p>Chief: { this.state.chief }</p>
+        <br />
+        <p>GOV Balance: { web3.fromWei(this.state.GOVBalance).valueOf() }</p>
+        <p>GOV Locked: { web3.fromWei(this.state.GOVLocked).valueOf() }</p>
+        <br />
+        <form ref={(input) => this.lockFreeForm = input} onSubmit={(e) => this.lockFree(e)}>
+          <p>Lock/Free GOV</p>
+          <input ref={(input) => this.amount = input} type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
+          <select ref={(input) => this.methodLF = input} >
+            <option value="lock">Lock</option>
+            <option value="free">Free</option>
+          </select>
+          <input type="submit" />
+        </form>
         <br />
         <p>Hat: { this.state.hat }</p>
         <br />
@@ -261,7 +316,7 @@ class App extends Component {
                   </td>
                   <td>
                     {
-                      this.state.slateVoted === key
+                      this.state.myVote === key
                       ? 'Voted'
                       : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
                     }
@@ -274,8 +329,8 @@ class App extends Component {
         <br />
         <form ref={(input) => this.createSlateForm = input} onSubmit={(e) => this.createSlate(e)}>
           <p>New slate</p>
-          <input ref={(input) => this.addresses = input} type="value" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
-          <select ref={(input) => this.method = input} >
+          <input ref={(input) => this.addresses = input} type="text" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
+          <select ref={(input) => this.methodVE = input} >
             <option value="vote">Create and vote</option>
             <option value="etch">Just create</option>
           </select>
@@ -299,7 +354,7 @@ class App extends Component {
             Object.keys(this.state.candidates).map(key =>
               <tr key={ key }>
                 <td>{ key }</td>
-                <td>{ this.state.candidates[key].toNumber() }</td>
+                <td>{ web3.fromWei(this.state.candidates[key]).valueOf() }</td>
               </tr>
             )
           }
