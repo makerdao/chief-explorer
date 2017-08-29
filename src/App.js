@@ -1,8 +1,8 @@
 import React, { Component } from 'react';
 import './App.css';
-import Web3 from 'web3';
-
-const web3 = new Web3();
+import web3, { initWeb3 } from './web3';
+import ReactNotify from './notify';
+import { etherscanTx } from './helpers';
 
 var dschief = require('./config/dschief.json');
 var dstoken = require('./config/dstoken.json');
@@ -25,26 +25,109 @@ class App extends Component {
     GOVBalance: web3.toBigNumber(-1),
     GOVLocked: web3.toBigNumber(-1),
     hat: null,
-    account: null
+    account: null,
+    transactions: {},
+    network: {
+    },
+  }
+
+  checkNetwork = () => {
+    web3.version.getNode((error) => {
+      const isConnected = !error;
+
+      // Check if we are synced
+      if (isConnected) {
+        web3.eth.getBlock('latest', (e, res) => {
+          if (typeof(res) === 'undefined') {
+            console.debug('YIKES! getBlock returned undefined!');
+          }
+          if (res.number >= this.state.network.latestBlock) {
+            const networkState = { ...this.state.network };
+            networkState['latestBlock'] = res.number;
+            networkState['outOfSync'] = e != null || ((new Date().getTime() / 1000) - res.timestamp) > 600;
+            this.setState({ network: networkState });
+          } else {
+            // XXX MetaMask frequently returns old blocks
+            // https://github.com/MetaMask/metamask-plugin/issues/504
+            console.debug('Skipping old block');
+          }
+        });
+      }
+
+      // Check which network are we connected to
+      // https://github.com/ethereum/meteor-dapp-wallet/blob/90ad8148d042ef7c28610115e97acfa6449442e3/app/client/lib/ethereum/walletInterface.js#L32-L46
+      if (this.state.network.isConnected !== isConnected) {
+        if (isConnected === true) {
+          web3.eth.getBlock(0, (e, res) => {
+            let network = false;
+            if (!e) {
+              switch (res.hash) {
+                case '0xa3c565fc15c7478862d50ccd6561e3c06b24cc509bf388941c25ea985ce32cb9':
+                  network = 'kovan';
+                  break;
+                case '0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3':
+                  network = 'main';
+                  break;
+                default:
+                  console.log('setting network to private');
+                  console.log('res.hash:', res.hash);
+                  network = 'private';
+              }
+            }
+            if (this.state.network.network !== network) {
+              this.initNetwork(network);
+            }
+          });
+        } else {
+          const networkState = { ...this.state.network };
+          networkState['isConnected'] = isConnected;
+          networkState['network'] = false;
+          networkState['latestBlock'] = 0;
+          this.setState({ network: networkState });
+        }
+      }
+    });
+  }
+
+  initNetwork = (newNetwork) => {
+    //checkAccounts();
+    const networkState = { ...this.state.network };
+    networkState['network'] = newNetwork;
+    networkState['isConnected'] = true;
+    networkState['latestBlock'] = 0;
+    this.setState({ network: networkState });
+
+    this.initContract();
+  }
+
+  checkAccounts = () => {
+    web3.eth.getAccounts((error, accounts) => {
+      if (!error) {
+        const networkState = { ...this.state.network };
+        networkState['accounts'] = accounts;
+        networkState['defaultAccount'] = accounts[0];
+        web3.eth.defaultAccount = networkState['defaultAccount'];
+        this.setState({ network: networkState }, () => {
+          if (web3.isAddress(this.state.network.defaultAccount)) {
+            web3.eth.getBalance(this.state.network.defaultAccount, (e, r) => {
+              const networkState = { ...this.state.network };
+              networkState['accountBalance'] = r;
+              this.setState({ network: networkState });
+            });
+          }
+        });
+      }
+    });
   }
 
   componentDidMount() {
     setTimeout(() => {
-      web3.setProvider(window.web3 ?
-        window.web3.currentProvider :
-        new Web3.providers.HttpProvider('http://localhost:8545')
-      );
+      initWeb3(web3);
       window.web3 = web3;
-      web3.eth.getAccounts((e,r) => {
-        if (!e) {
-          web3.eth.defaultAccount = r[0] || null;
-          this.setState({
-            account: r[0] || null
-          }, () => {
-            this.initContract();
-          });
-        }
-      });
+      this.checkNetwork();
+      this.checkAccounts();
+      this.checkAccountsInterval = setInterval(this.checkAccounts, 10000);
+      this.checkNetworkInterval = setInterval(this.checkNetwork, 3000);
     }, 500);
   }
 
@@ -57,6 +140,7 @@ class App extends Component {
     window.iouObj = this.iouObj = tokenContract.at(iou);
     if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
       this.getGOVBalance();
+      this.getGOVAllowance();
       this.getGOVLocked();
       this.getMyVote();
       this.getHat();
@@ -85,10 +169,12 @@ class App extends Component {
       });
       this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
         this.getHat();
+        this.logTransactionConfirmed(r.transactionHash);
       });
       this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
         this.getMyVote();
         this.getApprovals();
+        this.logTransactionConfirmed(r.transactionHash);
       });
       this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
         this.getGOVLocked();
@@ -101,13 +187,71 @@ class App extends Component {
                                   this.methodSig('mint(uint128)'),
                                   this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
         this.getGOVBalance();
+        this.getGOVAllowance();
+        this.logTransactionConfirmed(r.transactionHash);
       });
+      this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+        this.getGOVAllowance();
+        this.logTransactionConfirmed(r.transactionHash);
+      });
+      // This is necessary to finish transactions that failed after signing
+      this.checkPendingTransactionsInterval = setInterval(this.checkPendingTransactions, 10000);
     }
   }
 
   methodSig = (method) => {
     return web3.sha3(method).substring(0, 10)
   }
+
+  // Transactions
+  checkPendingTransactions = () => {
+    const transactions = { ...this.state.transactions };
+    Object.keys(transactions).map(tx => {
+      if (transactions[tx].pending) {
+        web3.eth.getTransactionReceipt(tx, (e, r) => {
+          if (!e && r !== null) {
+            if (r.logs.length === 0) {
+              this.logTransactionFailed(tx);
+            } else if (r.blockNumber)  {
+              this.logTransactionConfirmed(tx);
+            }
+          }
+        });
+      }
+      return false;
+    });
+  }
+
+  logPendingTransaction = (tx, title, callback = {}) => {
+    const msgTemp = 'Transaction TX was created. Waiting for confirmation...';
+    const transactions = { ...this.state.transactions };
+    transactions[tx] = { pending: true, title, callback }
+    this.setState({ transactions });
+    console.log(msgTemp.replace('TX', tx))
+    this.refs.notificator.info(tx, title, etherscanTx(this.state.network.network, msgTemp.replace('TX', `${tx.substring(0,10)}...`), tx), false);
+  }
+
+  logTransactionConfirmed = (tx) => {
+    const msgTemp = 'Transaction TX was confirmed.';
+    const transactions = { ...this.state.transactions };
+    if (transactions[tx]) {
+      transactions[tx].pending = false;
+      this.setState({ transactions });
+
+      this.refs.notificator.success(tx, transactions[tx].title, etherscanTx(this.state.network.network, msgTemp.replace('TX', `${tx.substring(0,10)}...`), tx), 4000);
+    }
+  }
+
+  logTransactionFailed = (tx) => {
+    const msgTemp = 'Transaction TX failed.';
+    const transactions = { ...this.state.transactions };
+    if (transactions[tx]) {
+      transactions[tx].pending = false;
+      this.setState({ transactions });
+      this.refs.notificator.error(tx, transactions[tx].title, msgTemp.replace('TX', `${tx.substring(0,10)}...`), 4000);
+    }
+  }
+  //
 
   getApprovals = () => {
     Object.keys(this.state.candidates).map(key => {
@@ -125,15 +269,23 @@ class App extends Component {
   }
 
   getGOVBalance = () => {
-    this.govObj.balanceOf(this.state.account, (e, r) => {
+    this.govObj.balanceOf(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
         this.setState({ GOVBalance: r })
       }
     });
   }
 
+  getGOVAllowance = () => {
+    this.govObj.allowance(this.state.network.defaultAccount, this.chiefObj.address, (e, r) => {
+      if (!e) {
+        this.setState({ GOVAllowance: r })
+      }
+    });
+  }
+
   getGOVLocked = () => {
-    this.chiefObj.deposits(this.state.account, (e, r) => {
+    this.chiefObj.deposits(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
         this.setState({ GOVLocked: r })
       }
@@ -141,7 +293,7 @@ class App extends Component {
   }
 
   getMyVote = () => {
-    this.chiefObj.votes(this.state.account, (e, r) => {
+    this.chiefObj.votes(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
         this.setState({ myVote: r })
       }
@@ -233,17 +385,17 @@ class App extends Component {
   lockFree = (e) => {
     e.preventDefault();
     const method = this.methodLF.value;
-    const amount = web3.toWei(this.amount.value);
-    this.chiefObj[method](amount, (e, tx) => {
-      console.log(tx);
+    this.chiefObj[method](web3.toWei(this.amount.value), (e, tx) => {
+      this.logPendingTransaction(tx, `${method}: ${this.amount.value}`);
     });
     return false;
   }
 
   voteSlate = (e) => {
     e.preventDefault();
-    this.chiefObj.vote.bytes32(e.target.getAttribute('data-slate'), (e, tx) => {
-      console.log(tx);
+    const slate = e.target.getAttribute('data-slate');
+    this.chiefObj.vote.bytes32(slate, (e, tx) => {
+      this.logPendingTransaction(tx, `vote: ${slate}`);
     });
     return false;
   }
@@ -253,15 +405,16 @@ class App extends Component {
     const method = this.methodVE.value;
     const addresses = this.addresses.value.replace(/\s/g,'').split(',').sort();
     this.chiefObj[method]['address[]'](addresses, (e, tx) => {
-      console.log(tx);
+      this.logPendingTransaction(tx, `${method}: ${addresses.join(',')}`);
     });
     return false;
   }
 
   liftCandidate = (e) => {
     e.preventDefault();
-    this.chiefObj.lift(e.target.getAttribute('data-address'), (e, tx) => {
-      console.log(tx);
+    const address = e.target.getAttribute('data-address');
+    this.chiefObj.lift(address, (e, tx) => {
+      this.logPendingTransaction(tx, `lift: ${address}`);
     });
     return false;
   }
@@ -270,7 +423,7 @@ class App extends Component {
     return (
       <div className="App">
         <h2>DS Chief</h2>
-        <p>Your account: { this.state.account }</p>
+        <p>Your account: { this.state.network.defaultAccount }</p>
         <p>Create new set of contracts</p>
         <form ref={input => this.deployForm = input} onSubmit={e => this.deploy(e)}>
           <input ref={input => this.max_yays = input} name="max_yays" type="number" /> Max Yays
@@ -282,6 +435,7 @@ class App extends Component {
         <p>Chief: { this.state.chief }</p>
         <br />
         <p>GOV Balance: { web3.fromWei(this.state.GOVBalance).valueOf() }</p>
+        <p>GOV Allowance: { web3.fromWei(this.state.GOVAllowance).valueOf() }</p>
         <p>GOV Locked: { web3.fromWei(this.state.GOVLocked).valueOf() }</p>
         <br />
         <form ref={(input) => this.lockFreeForm = input} onSubmit={(e) => this.lockFree(e)}>
@@ -371,6 +525,7 @@ class App extends Component {
           }
           </tbody>
         </table>
+        <ReactNotify ref='notificator'/>
       </div>
     );
   }
