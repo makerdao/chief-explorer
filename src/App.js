@@ -23,7 +23,9 @@ class App extends Component {
     candidates: {},
     myVote: null,
     GOVBalance: web3.toBigNumber(-1),
-    GOVLocked: web3.toBigNumber(-1),
+    GOVAllowance: web3.toBigNumber(-1),
+    IOUBalance: web3.toBigNumber(-1),
+    IOUAllowance: web3.toBigNumber(-1),
     hat: null,
     account: null,
     transactions: {},
@@ -141,7 +143,8 @@ class App extends Component {
     if (gov && iou && chief && web3.isAddress(gov) && web3.isAddress(iou) && web3.isAddress(chief)) {
       this.getGOVBalance();
       this.getGOVAllowance();
-      this.getGOVLocked();
+      this.getIOUBalance();
+      this.getIOUAllowance();
       this.getMyVote();
       this.getHat();
       this.setState({ gov, iou, chief }, () => {
@@ -177,7 +180,8 @@ class App extends Component {
         this.logTransactionConfirmed(r.transactionHash);
       });
       this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
-        this.getGOVLocked();
+        this.getIOUBalance();
+        this.getIOUAllowance();
         this.getApprovals();
       });
       this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
@@ -192,6 +196,10 @@ class App extends Component {
       });
       this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
         this.getGOVAllowance();
+        this.logTransactionConfirmed(r.transactionHash);
+      });
+      this.iouObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
+        this.getIOUAllowance();
         this.logTransactionConfirmed(r.transactionHash);
       });
       // This is necessary to finish transactions that failed after signing
@@ -268,6 +276,7 @@ class App extends Component {
     });
   }
 
+  // Getters
   getGOVBalance = () => {
     this.govObj.balanceOf(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
@@ -284,10 +293,18 @@ class App extends Component {
     });
   }
 
-  getGOVLocked = () => {
+  getIOUBalance = () => {
     this.chiefObj.deposits(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
-        this.setState({ GOVLocked: r })
+        this.setState({ IOUBalance: r })
+      }
+    });
+  }
+
+  getIOUAllowance = () => {
+    this.iouObj.allowance(this.state.network.defaultAccount, this.chiefObj.address, (e, r) => {
+      if (!e) {
+        this.setState({ IOUAllowance: r })
       }
     });
   }
@@ -307,7 +324,9 @@ class App extends Component {
       }
     });
   }
+  //
 
+  // Actions
   deploy = async (e) => {
     e.preventDefault();
     if (this.max_yays.value) {
@@ -382,12 +401,33 @@ class App extends Component {
     })
   }
 
+  setAllowance = (e) => {
+    e.preventDefault();
+    const token = e.target.getAttribute('data-token');
+    const value = e.target.getAttribute('data-value');
+    this[`${token}Obj`].approve(this.chiefObj.address, value, (e, tx) => {
+      this.logPendingTransaction(tx, `${token} ${value === "0" ? 'deny' : 'rely'} chief`);
+    });
+    return false;
+  }
+
   lockFree = (e) => {
     e.preventDefault();
     const method = this.methodLF.value;
-    this.chiefObj[method](web3.toWei(this.amount.value), (e, tx) => {
-      this.logPendingTransaction(tx, `${method}: ${this.amount.value}`);
-    });
+    const value = web3.toWei(this.amount.value);
+    if (method === 'lock' && this.state.GOVBalance.lt(value)) {
+      alert('Not enough GOV balance to lock this amount');
+    } else if (method === 'lock' && this.state.GOVAllowance.lt(value)) {
+      alert('Not allowance set for GOV Token');
+    } else if (method === 'free' && this.state.IOUBalance.lt(value)) {
+      alert('Not enough IOU balance (GOV locked) to free this amount');
+    } else if (method === 'free' && this.state.IOUAllowance.lt(value)) {
+      alert('Not allowance set for IOU Token');
+    } else {
+      this.chiefObj[method](value, (e, tx) => {
+        this.logPendingTransaction(tx, `${method}: ${this.amount.value}`);
+      });
+    }
     return false;
   }
 
@@ -418,6 +458,7 @@ class App extends Component {
     });
     return false;
   }
+  //
 
   render() {
     return (
@@ -434,9 +475,44 @@ class App extends Component {
         <p>Iou: { this.state.iou }</p>
         <p>Chief: { this.state.chief }</p>
         <br />
-        <p>GOV Balance: { web3.fromWei(this.state.GOVBalance).valueOf() }</p>
-        <p>GOV Allowance: { web3.fromWei(this.state.GOVAllowance).valueOf() }</p>
-        <p>GOV Locked: { web3.fromWei(this.state.GOVLocked).valueOf() }</p>
+        <p>
+          GOV Balance:&nbsp;
+          {
+            this.state.GOVBalance.eq(-1)
+            ? 'Loading...'
+            : web3.fromWei(this.state.GOVBalance).valueOf()
+          }
+        </p>
+        <p>
+          Allowance:&nbsp;
+          {
+            this.state.GOVAllowance.eq(-1) || this.state.GOVBalance.eq(-1)
+            ? 'Calculating allowance...'
+            :
+              web3.fromWei(this.state.GOVAllowance).lt(this.state.GOVBalance)
+              ? <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="-1">Rely</a></span>
+              : <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="0">Deny</a></span>
+          }
+        </p>
+        <p>
+          IOU Balance (GOV Locked):&nbsp;
+          {
+            this.state.IOUBalance.eq(-1)
+            ? 'Loading...'
+            : web3.fromWei(this.state.IOUBalance).valueOf()
+          }
+        </p>
+        <p>
+          Allowance:&nbsp;
+          {
+            this.state.IOUAllowance.eq(-1) || this.state.IOUBalance.eq(-1)
+            ? 'Calculating allowance...'
+            :
+              web3.fromWei(this.state.IOUAllowance).lt(this.state.IOUBalance)
+              ? <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="-1">Rely</a></span>
+              : <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a></span>
+          }
+        </p>
         <br />
         <form ref={(input) => this.lockFreeForm = input} onSubmit={(e) => this.lockFree(e)}>
           <p>Lock/Free GOV</p>
@@ -449,7 +525,7 @@ class App extends Component {
         </form>
         <br />
         <p>Hat: { this.state.hat }</p>
-        <br />
+        <hr />
         <p>Slates Created:</p>
         <table>
           <thead>
@@ -498,7 +574,7 @@ class App extends Component {
           </select>
           <input type="submit" />
         </form>
-        <br />
+        <hr />
         <p>Candidates Ranking:</p>
         <table>
           <thead>
