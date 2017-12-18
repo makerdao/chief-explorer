@@ -4,8 +4,9 @@ import web3, { initWeb3 } from './web3';
 import ReactNotify from './notify';
 import { etherscanTx, etherscanAddress, etherscanToken } from './helpers';
 
-var dschief = require('./config/dschief.json');
-var dstoken = require('./config/dstoken.json');
+var dschief = require('./abi/dschief.json');
+var dstoken = require('./abi/dstoken.json');
+var settings = require('./settings.json');
 var chiefContract = web3.eth.contract(dschief.abi);
 var tokenContract = web3.eth.contract(dstoken.abi);
 window.dschief = dschief;
@@ -148,7 +149,8 @@ class App extends Component {
     this.setState({
       ...initialState
     }, async () => {
-      const chief = window.localStorage.getItem('chief');
+      console.log(settings.chain['main'].chief)
+      const chief = this.state.network.network === 'main' || window.localStorage.getItem('chief') === '' ? settings.chain[this.state.network.network].chief : window.localStorage.getItem('chief');
       if (chief  && web3.isAddress(chief)) {
         window.chiefObj = this.chiefObj = chiefContract.at(chief);
         const gov = await this.getToken('GOV');
@@ -164,25 +166,27 @@ class App extends Component {
           this.getMaxYays();
           this.getHat();
           this.setState({ gov, iou, chief }, () => {
-            this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }, (e, r) => {
+            this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }).get((e, r) => {
               if (!e) {
-                const addressesString = r.args.fax.substring(r.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-                this.setState((prevState, props) => {
-                  const candidates = {...prevState.candidates};
-                  const slates = {...prevState.slates};
-                  const addresses = [];
-                  let slateHashAddress = '';
-                  for (let i = 0; i < addressesString.length / 64; i++) {
-                    const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                    candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-                    addresses.push(address);
-                    slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-                  }
-                  slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-                  return { candidates, slates };
-                }, () => {
-                  this.getApprovals();
-                });
+                for (let z = 0; z < r.length; z++) {
+                  const addressesString = r[z].args.fax.substring(r[z].args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+                  this.setState((prevState, props) => {
+                    const candidates = {...prevState.candidates};
+                    const slates = {...prevState.slates};
+                    const addresses = [];
+                    let slateHashAddress = '';
+                    for (let i = 0; i < addressesString.length / 64; i++) {
+                      const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+                      candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+                      addresses.push(address);
+                      slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+                    }
+                    slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+                    return { candidates, slates };
+                  }, () => {
+                    this.getApprovals();
+                  });
+                }
               }
             });
           });
@@ -248,27 +252,38 @@ class App extends Component {
     });
   }
 
-  logPendingTransaction = (tx, title, callback = {}) => {
+  logRequestTransaction = (id, title) => {
+    const msgTemp = 'Waiting for transaction signature...';
+    this.refs.notificator.info(id, title, msgTemp, false);
+  }
+
+  logPendingTransaction = (id, tx, title, callback = []) => {
     const msgTemp = 'Transaction TX was created. Waiting for confirmation...';
     const transactions = { ...this.state.transactions };
     transactions[tx] = { pending: true, title, callback }
     this.setState({ transactions });
-    console.log(msgTemp.replace('TX', tx))
+    console.log(msgTemp.replace('TX', tx));
+    this.refs.notificator.hideNotification(id);
     this.refs.notificator.info(tx, title, etherscanTx(this.state.network.network, msgTemp.replace('TX', `${tx.substring(0,10)}...`), tx), false);
   }
 
-  logTransactionConfirmed = (tx) => {
+  logTransactionConfirmed = tx => {
     const msgTemp = 'Transaction TX was confirmed.';
     const transactions = { ...this.state.transactions };
-    if (transactions[tx]) {
+    if (transactions[tx] && transactions[tx].pending) {
       transactions[tx].pending = false;
-      this.setState({ transactions });
-
-      this.refs.notificator.success(tx, transactions[tx].title, etherscanTx(this.state.network.network, msgTemp.replace('TX', `${tx.substring(0,10)}...`), tx), 4000);
+      this.setState({ transactions }, () => {
+        console.log(msgTemp.replace('TX', tx));
+        this.refs.notificator.hideNotification(tx);
+        this.refs.notificator.success(tx, transactions[tx].title, etherscanTx(this.state.network.network, msgTemp.replace('TX', `${tx.substring(0,10)}...`), tx), 4000);
+        if (transactions[tx].callback.length > 0) {
+          this.executeCallback(transactions[tx].callback);
+        }
+      });
     }
   }
 
-  logTransactionFailed = (tx) => {
+  logTransactionFailed = tx => {
     const msgTemp = 'Transaction TX failed.';
     const transactions = { ...this.state.transactions };
     if (transactions[tx]) {
@@ -276,6 +291,11 @@ class App extends Component {
       this.setState({ transactions });
       this.refs.notificator.error(tx, transactions[tx].title, msgTemp.replace('TX', `${tx.substring(0,10)}...`), 4000);
     }
+  }
+
+  logTransactionRejected = (tx, title) => {
+    const msgTemp = 'User denied transaction signature.';
+    this.refs.notificator.error(tx, title, msgTemp, 4000);
   }
   //
 
@@ -406,46 +426,65 @@ class App extends Component {
     }
   }
 
-  checkDeployedAddress = (resolve, reject, error, tx) => {
-    if (!error && tx) {
-      web3.eth.getTransactionReceipt(tx.transactionHash, (err, res) => {
-        if (!err) {
-          if (res && res.contractAddress) {
+  checkDeployedAddress = (resolve, reject, tx) => {
+    // We need to use an interval as MM with filters are not a good combination
+    this.checkDeployAddress = setInterval(() => {
+      web3.eth.getTransactionReceipt(tx.transactionHash, (e, r) => {
+        if (!e) {
+          if (r && r.contractAddress) {
+            clearInterval(this.checkDeployAddress);
             this.logTransactionConfirmed(tx.transactionHash);
-            resolve(res.contractAddress);
+            resolve(r.contractAddress);
           }
         } else {
-          reject(err);
+          reject(e);
         }
       });
-    } else {
-      reject(error);
-    }
+    }, 5000);
   }
 
   deployToken = (symbol) => {
     return new Promise((resolve, reject) => {
-      tokenContract.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (error, tx) => {
-        this.logPendingTransaction(tx.transactionHash, `deploy: ${web3.toAscii(symbol)}`);
-        this.checkDeployedAddress(resolve, reject, error, tx);
+      const id = Math.random();
+      const title = `deploy: ${web3.toAscii(symbol)}`;
+      this.logRequestTransaction(id, title);
+      tokenContract.new(symbol, { data: dstoken.bytecode, gas: 2000000 }, (e, tx) => {
+        if (!e) {
+          this.logPendingTransaction(id, tx.transactionHash, title);
+          this.checkDeployedAddress(resolve, reject, tx);
+        } else {
+          this.logTransactionRejected(id, title);
+          reject(e);
+        }
       });
     })
   }
 
   deployChief = (gov, iou, max) => {
     return new Promise((resolve, reject) => {
-      chiefContract.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (error, tx) => {
-        this.logPendingTransaction(tx.transactionHash, 'deploy: chief');
-        this.checkDeployedAddress(resolve, reject, error, tx);
+      const id = Math.random();
+      const title = 'deploy: chief';
+      this.logRequestTransaction(id, title);
+      chiefContract.new(gov, iou, max, { data: dschief.bytecode, gas: 2000000 }, (e, tx) => {
+        if (!e) {
+          this.logPendingTransaction(id, tx.transactionHash, title);
+          this.checkDeployedAddress(resolve, reject, tx);
+        } else {
+          this.logTransactionRejected(id, title);
+          reject(e);
+        }
       });
     })
   }
 
   setOwnership = (iou, chief) => {
     return new Promise((resolve, reject) => {
+      const id = Math.random();
+      const title = 'IOU setOwner Chief';
+      this.logRequestTransaction(id, title);
       tokenContract.at(iou).setOwner(chief, (error, tx) => {
         if (!error) {
-          this.logPendingTransaction(tx, 'IOU setOwner Chief');
+          this.logPendingTransaction(id, tx, title);
           resolve(tx);
         } else {
           reject(error);
@@ -458,8 +497,11 @@ class App extends Component {
     e.preventDefault();
     const token = e.target.getAttribute('data-token');
     const value = e.target.getAttribute('data-value');
+    const id = Math.random();
+    const title = `${token} ${value === "0" ? 'deny' : 'rely'} chief`;
+    this.logRequestTransaction(id, title);
     this[`${token}Obj`].approve(this.chiefObj.address, value, (e, tx) => {
-      this.logPendingTransaction(tx, `${token} ${value === "0" ? 'deny' : 'rely'} chief`);
+      this.logPendingTransaction(id, tx, title);
     });
     return false;
   }
@@ -477,8 +519,11 @@ class App extends Component {
     } else if (method === 'free' && this.state.IOUAllowance.lt(value)) {
       alert('Not allowance set for IOU Token');
     } else {
+      const id = Math.random();
+      const title = `${method}: ${this.amount.value}`;
+      this.logRequestTransaction(id, title);
       this.chiefObj[method](value, (e, tx) => {
-        this.logPendingTransaction(tx, `${method}: ${this.amount.value}`);
+        this.logPendingTransaction(id, tx, title);
         // Reset form value
         this.amount.value = null;
       });
@@ -489,8 +534,11 @@ class App extends Component {
   voteSlate = (e) => {
     e.preventDefault();
     const slate = e.target.getAttribute('data-slate');
+    const id = Math.random();
+    const title = `vote: ${slate}`;
+    this.logRequestTransaction(id, title);
     this.chiefObj.vote.bytes32(slate, (e, tx) => {
-      this.logPendingTransaction(tx, `vote: ${slate}`);
+      this.logPendingTransaction(id, tx, title);
     });
     return false;
   }
@@ -499,8 +547,11 @@ class App extends Component {
     e.preventDefault();
     const method = this.methodVE.value;
     const addresses = this.addresses.value.replace(/\s/g,'').split(',').sort();
+    const id = Math.random();
+    const title = `${method}: ${addresses.join(',')}`;
+    this.logRequestTransaction(id, title);
     this.chiefObj[method]['address[]'](addresses, (e, tx) => {
-      this.logPendingTransaction(tx, `${method}: ${addresses.join(',')}`);
+      this.logPendingTransaction(id, tx, title);
       // Reset form value
       this.addresses.value = null;
     });
@@ -510,8 +561,11 @@ class App extends Component {
   liftCandidate = (e) => {
     e.preventDefault();
     const address = e.target.getAttribute('data-address');
+    const id = Math.random();
+    const title = `lift: ${address}`;
+    this.logRequestTransaction(id, title);
     this.chiefObj.lift(address, (e, tx) => {
-      this.logPendingTransaction(tx, `lift: ${address}`);
+      this.logPendingTransaction(id, tx, title);
     });
     return false;
   }
@@ -537,9 +591,9 @@ class App extends Component {
             this.state.GOVAllowance.eq(-1) || this.state.GOVBalance.eq(-1)
             ? 'Calculating allowance...'
             :
-              web3.fromWei(this.state.GOVAllowance).lt(this.state.GOVBalance)
-              ? <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="-1">Rely</a></span>
-              : <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="0">Deny</a></span>
+              this.state.GOVAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+              ? <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="0">Deny</a></span>
+              : <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="-1">Rely</a></span>
           }
         </p>
         <p>
@@ -556,9 +610,9 @@ class App extends Component {
             this.state.IOUAllowance.eq(-1) || this.state.IOUBalance.eq(-1)
             ? 'Calculating allowance...'
             :
-              web3.fromWei(this.state.IOUAllowance).lt(this.state.IOUBalance)
-              ? <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="-1">Rely</a></span>
-              : <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a></span>
+              this.state.IOUAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+              ? <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a></span>
+              : <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="-1">Rely</a></span>
           }
         </p>
         <hr />
@@ -596,7 +650,7 @@ class App extends Component {
                   </td>
                   <td>
                     {
-                      this.state.slates[key].map(value => <p key={ value }>{ value }</p>)
+                      this.state.slates[key].map(value => <p key={ value }>{ etherscanAddress(this.state.network.network, value, value) }</p>)
                     }
                   </td>
                   <td>
@@ -642,7 +696,7 @@ class App extends Component {
               <tr key={ key }>
                 <td>{ key }</td>
                 <td>{ web3.fromWei(this.state.candidates[key]).valueOf() }</td>
-                <td>{ this.state.candidates[key] > this.state.candidates[this.state.hat] ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : '' }</td>
+                <td>{ typeof this.state.candidates[this.state.hat] === 'undefined' || this.state.candidates[key].gt(this.state.candidates[this.state.hat]) ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : '' }</td>
               </tr>
             )
           }
@@ -663,19 +717,24 @@ class App extends Component {
         <p>GOV Token: { etherscanToken(this.state.network.network, this.state.gov, this.state.gov) }</p>
         <p>IOU Token: { etherscanToken(this.state.network.network, this.state.iou, this.state.iou) }</p>
         <hr />
-        <p>Create new Chief contract (If GOV address remains empty or is not a valid address, it will deploy a test token)</p>
-        <form ref={ input => this.deployForm = input } onSubmit={ e => this.deploy(e) }>
-          <input ref={ input => this.govAddress = input } name="gov" type="text" placeholder="GOV Token Address" />
-          <input ref={ input => this.max_yays = input } name="max_yays" type="text" placeholder="Max yays" />
-          <input type="submit"/>
-        </form>
-        <hr />
-        <p>Load { this.state.chief ? 'another ': '' }Chief contract</p>
-        <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
-          <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
-          <input type="submit" />
-        </form>
-        <hr />
+        {
+          this.state.network.network !== 'main' &&
+          <span>
+            <p>Create new Chief contract (If GOV address remains empty or is not a valid address, it will deploy a test token)</p>
+            <form ref={ input => this.deployForm = input } onSubmit={ e => this.deploy(e) }>
+              <input ref={ input => this.govAddress = input } name="gov" type="text" placeholder="GOV Token Address" />
+              <input ref={ input => this.max_yays = input } name="max_yays" type="text" placeholder="Max yays" />
+              <input type="submit"/>
+            </form>
+            <hr />
+            <p>Load { this.state.chief ? 'another ': '' }Chief contract</p>
+            <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
+              <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
+              <input type="submit" />
+            </form>
+            <hr />
+          </span>
+        }
         {
           this.state.chief
           ? this.renderChiefData()

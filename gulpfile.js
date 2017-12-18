@@ -15,7 +15,7 @@ var LIB_PATH = [
     ]
   }
 ];
-var JSON_OUT = 'src/config/';
+var JSON_OUT = 'src/abi/';
 
 
 gulp.task('build', (cb) => {
