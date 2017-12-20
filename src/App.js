@@ -2,7 +2,8 @@ import React, { Component } from 'react';
 import './App.css';
 import web3, { initWeb3 } from './web3';
 import ReactNotify from './notify';
-import { etherscanTx, etherscanAddress, etherscanToken } from './helpers';
+import { printNumber, etherscanTx, etherscanAddress, etherscanToken } from './helpers';
+import logo from './makerdao.svg';
 
 var dschief = require('./abi/dschief.json');
 var dstoken = require('./abi/dstoken.json');
@@ -149,7 +150,6 @@ class App extends Component {
     this.setState({
       ...initialState
     }, async () => {
-      console.log(settings.chain['main'].chief)
       const chief = this.state.network.network === 'main' || window.localStorage.getItem('chief') === '' ? settings.chain[this.state.network.network].chief : window.localStorage.getItem('chief');
       if (chief  && web3.isAddress(chief)) {
         window.chiefObj = this.chiefObj = chiefContract.at(chief);
@@ -166,28 +166,11 @@ class App extends Component {
           this.getMaxYays();
           this.getHat();
           this.setState({ gov, iou, chief }, () => {
-            this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])'), this.methodSig('vote(address[],address)')] }, { fromBlock: 0 }).get((e, r) => {
-              if (!e) {
-                for (let z = 0; z < r.length; z++) {
-                  const addressesString = r[z].args.fax.substring(r[z].args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-                  this.setState((prevState, props) => {
-                    const candidates = {...prevState.candidates};
-                    const slates = {...prevState.slates};
-                    const addresses = [];
-                    let slateHashAddress = '';
-                    for (let i = 0; i < addressesString.length / 64; i++) {
-                      const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-                      candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-                      addresses.push(address);
-                      slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-                    }
-                    slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-                    return { candidates, slates };
-                  }, () => {
-                    this.getApprovals();
-                  });
-                }
-              }
+            this.getSlates().then(() => {
+              this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock: 'latest' }, (e, r) => {
+                this.extractSlateAddresses(r);
+                this.getMyVote();
+              });
             });
           });
           this.chiefObj.LogNote({ sig: this.methodSig('lift(address)') }, { fromBlock: 'latest' }, (e, r) => {
@@ -206,15 +189,12 @@ class App extends Component {
           });
           this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
                                       this.methodSig('transferFrom(address,address,uint256)'),
+                                      this.methodSig('approve(address,uint256)'),
                                       this.methodSig('push(address,uint128)'),
                                       this.methodSig('pull(address,uint128)'),
                                       this.methodSig('mint(uint128)'),
                                       this.methodSig('burn(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
             this.getGOVBalance();
-            this.getGOVAllowance();
-            this.logTransactionConfirmed(r.transactionHash);
-          });
-          this.govObj.LogNote({ sig: this.methodSig('approve(address,uint256)') }, { fromBlock: 'latest' }, (e, r) => {
             this.getGOVAllowance();
             this.logTransactionConfirmed(r.transactionHash);
           });
@@ -229,8 +209,49 @@ class App extends Component {
     });
   }
 
+  getSlates = () => {
+    return new Promise((resolve, reject) => {
+      this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock: 0 }).get((e, r) => {
+        if (!e) {
+          for (let i = 0; i < r.length; i++) {
+            this.extractSlateAddresses(r[i]);
+          }
+          this.getMyVote();
+          resolve(true);
+        } else {
+          reject(e);
+        }
+      });
+    });
+  }
+
+  extractSlateAddresses = (data) => {
+    const addressesString = data.args.fax.substring(data.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
+    this.setState((prevState, props) => {
+      const candidates = {...prevState.candidates};
+      const slates = {...prevState.slates};
+      const addresses = [];
+      let slateHashAddress = '';
+      for (let i = 0; i < addressesString.length / 64; i++) {
+        const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+        candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+        addresses.push(address);
+        slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+      }
+      slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+      return { candidates, slates };
+    }, () => {
+      this.getApprovals();
+    });
+  }
+
   methodSig = (method) => {
     return web3.sha3(method).substring(0, 10)
+  }
+
+  executeCallback = args => {
+    const method = args.shift();
+    this[method](...args);
   }
 
   // Transactions
@@ -359,6 +380,16 @@ class App extends Component {
     });
   }
 
+  reloadBalances = () => {
+    this.getGOVBalance();
+    this.getIOUBalance();
+  }
+
+  reloadVotes = () => {
+    this.getMyVote();
+    this.getApprovals();
+  }
+
   getMyVote = () => {
     this.chiefObj.votes(this.state.network.defaultAccount, (e, r) => {
       if (!e) {
@@ -482,12 +513,12 @@ class App extends Component {
       const id = Math.random();
       const title = 'IOU setOwner Chief';
       this.logRequestTransaction(id, title);
-      tokenContract.at(iou).setOwner(chief, (error, tx) => {
-        if (!error) {
+      tokenContract.at(iou).setOwner(chief, (e, tx) => {
+        if (!e) {
           this.logPendingTransaction(id, tx, title);
           resolve(tx);
         } else {
-          reject(error);
+          reject(e);
         }
       });
     })
@@ -501,7 +532,11 @@ class App extends Component {
     const title = `${token} ${value === "0" ? 'deny' : 'rely'} chief`;
     this.logRequestTransaction(id, title);
     this[`${token}Obj`].approve(this.chiefObj.address, value, (e, tx) => {
-      this.logPendingTransaction(id, tx, title);
+      if (!e) {
+        this.logPendingTransaction(id, tx, title, [`get${token.toUpperCase()}Allowance`]);
+      } else {
+        this.logTransactionRejected(id, title);
+      }
     });
     return false;
   }
@@ -523,7 +558,7 @@ class App extends Component {
       const title = `${method}: ${this.amount.value}`;
       this.logRequestTransaction(id, title);
       this.chiefObj[method](value, (e, tx) => {
-        this.logPendingTransaction(id, tx, title);
+        this.logPendingTransaction(id, tx, title, ['reloadBalances']);
         // Reset form value
         this.amount.value = null;
       });
@@ -538,7 +573,7 @@ class App extends Component {
     const title = `vote: ${slate}`;
     this.logRequestTransaction(id, title);
     this.chiefObj.vote.bytes32(slate, (e, tx) => {
-      this.logPendingTransaction(id, tx, title);
+      this.logPendingTransaction(id, tx, title, ['reloadVotes']);
     });
     return false;
   }
@@ -551,7 +586,7 @@ class App extends Component {
     const title = `${method}: ${addresses.join(',')}`;
     this.logRequestTransaction(id, title);
     this.chiefObj[method]['address[]'](addresses, (e, tx) => {
-      this.logPendingTransaction(id, tx, title);
+      this.logPendingTransaction(id, tx, title, ['getSlates']);
       // Reset form value
       this.addresses.value = null;
     });
@@ -565,7 +600,7 @@ class App extends Component {
     const title = `lift: ${address}`;
     this.logRequestTransaction(id, title);
     this.chiefObj.lift(address, (e, tx) => {
-      this.logPendingTransaction(id, tx, title);
+      this.logPendingTransaction(id, tx, title, ['getHat']);
     });
     return false;
   }
@@ -573,174 +608,323 @@ class App extends Component {
 
   renderChiefData = () => {
     return(
-      <div>
-        <p>Max yays: { this.state.max_yays.eq(-1) ? 'Loading...' : this.state.max_yays.valueOf() }</p>
-        <p>Hat: { this.state.hat }</p>
-        <hr />
-        <p>
-          GOV Balance:&nbsp;
-          {
-            this.state.GOVBalance.eq(-1)
-            ? 'Loading...'
-            : web3.fromWei(this.state.GOVBalance).valueOf()
-          }
-        </p>
-        <p>
-          Allowance:&nbsp;
-          {
-            this.state.GOVAllowance.eq(-1) || this.state.GOVBalance.eq(-1)
-            ? 'Calculating allowance...'
-            :
-              this.state.GOVAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
-              ? <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="0">Deny</a></span>
-              : <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="-1">Rely</a></span>
-          }
-        </p>
-        <p>
-          IOU Balance (GOV Locked):&nbsp;
-          {
-            this.state.IOUBalance.eq(-1)
-            ? 'Loading...'
-            : web3.fromWei(this.state.IOUBalance).valueOf()
-          }
-        </p>
-        <p>
-          Allowance:&nbsp;
-          {
-            this.state.IOUAllowance.eq(-1) || this.state.IOUBalance.eq(-1)
-            ? 'Calculating allowance...'
-            :
-              this.state.IOUAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
-              ? <span>Access granted -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a></span>
-              : <span>No access -> <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="-1">Rely</a></span>
-          }
-        </p>
-        <hr />
-        <form ref={ (input) => this.lockFreeForm = input } onSubmit={ e => this.lockFree(e) }>
-          <p style={ {textDecoration: 'underline'} }>Lock/Free GOV</p>
-          <input ref={ (input) => this.amount = input } type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
-          <select ref={ (input) => this.methodLF = input } >
-            <option value="lock">Lock</option>
-            <option value="free">Free</option>
-          </select>
-          <input type="submit" />
-        </form>
-        <br />
-        <hr />
-        <p style={ {textDecoration: 'underline'} }>Slates Created</p>
-        <table>
-          <thead>
-            <tr>
-              <th>
-                Slate
-              </th>
-              <th>
-                Addresses
-              </th>
-              <th>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {
-              Object.keys(this.state.slates).map(key =>
-                <tr key={ key }>
-                  <td>
-                    { key.substring(0,10) }...
-                  </td>
-                  <td>
+      <section>
+        <div className="col-md-12">
+          <div className="box">
+            <div className="box-header with-border">
+                <h3 className="box-title">Balances</h3>
+              </div>
+              <div className="box-body">
+                <div className="row">
+                  <div className="col-md-12">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th></th>
+                          <th>Balance</th>
+                          <th>Allowance</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>GOV Balance</td>
+                          <td>
+                            {
+                              this.state.GOVBalance.eq(-1)
+                              ? 'Loading...'
+                              : printNumber(this.state.GOVBalance)
+                            }
+                          </td>
+                          <td>
+                            {
+                              this.state.GOVAllowance.eq(-1) || this.state.GOVBalance.eq(-1)
+                              ? 'Calculating allowance...'
+                              :
+                                this.state.GOVAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+                                ? 'Approved'
+                                : 'Not Approved'
+                            }
+                          </td>
+                          <td>
+                            {
+                              !this.state.GOVAllowance.eq(-1) && !this.state.GOVBalance.eq(-1) &&
+                              this.state.GOVAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+                                ? <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="0">Deny</a>
+                                : <a href="#allowance" onClick={ this.setAllowance } data-token="gov" data-value="-1">Rely</a>
+                            }
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>IOU Balance (Locked GOV)</td>
+                          <td>
+                            {
+                              this.state.IOUBalance.eq(-1)
+                              ? 'Loading...'
+                              : printNumber(this.state.IOUBalance)
+                            }
+                          </td>
+                          <td>
+                            {
+                              this.state.IOUAllowance.eq(-1) || this.state.IOUBalance.eq(-1)
+                              ? 'Calculating allowance...'
+                              :
+                                this.state.IOUAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+                                ? 'Approved'
+                                : 'Not Approved'
+                            }
+                          </td>
+                          <td>
+                            {
+                              !this.state.IOUAllowance.eq(-1) && !this.state.IOUBalance.eq(-1) &&
+                              this.state.IOUAllowance.eq(web3.toBigNumber(2).pow(256).minus(1)) // uint(-1))
+                                ? <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="0">Deny</a>
+                                : <a href="#allowance" onClick={ this.setAllowance } data-token="iou" data-value="-1">Rely</a>
+                            }
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-12">
+          <div className="box">
+            <div className="box-header with-border">
+                <h3 className="box-title">Lock/Free GOV</h3>
+              </div>
+              <div className="box-body">
+                <div className="row">
+                  <div className="col-md-12">
+                    <form ref={ (input) => this.lockFreeForm = input } onSubmit={ e => this.lockFree(e) }>
+                      <input ref={ (input) => this.amount = input } type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
+                      <select ref={ (input) => this.methodLF = input } >
+                        <option value="lock">Lock</option>
+                        <option value="free">Free</option>
+                      </select>
+                      <input type="submit" />
+                    </form>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-12">
+          <div className="box">
+            <div className="box-header with-border">
+                <h3 className="box-title">Candidates Ranking</h3>
+              </div>
+              <div className="box-body">
+                <div className="row">
+                  <div className="col-md-12">
+                    <p>Hat: { etherscanAddress(this.state.network.network, this.state.hat, this.state.hat) }</p>
                     {
-                      this.state.slates[key].map(value => <p key={ value }>{ etherscanAddress(this.state.network.network, value, value) }</p>)
+                      Object.keys(this.state.candidates).length > 0
+                      ?
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>
+                                Candidate
+                              </th>
+                              <th>
+                                Weight
+                              </th>
+                              <th>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                          {
+                            Object.keys(this.state.candidates).sort((a,b) => this.state.candidates[b] - this.state.candidates[a]).map(key =>
+                              <tr key={ key }>
+                                <td>{ etherscanAddress(this.state.network.network, key, key) }</td>
+                                <td style={ {textAlign: 'right'} }>{ printNumber(this.state.candidates[key]) }</td>
+                                <td>{ typeof this.state.candidates[this.state.hat] === 'undefined' || this.state.candidates[key].gt(this.state.candidates[this.state.hat]) ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : <span style={ {color:'#d2d6de'} }>Lift this candidate</span> }</td>
+                              </tr>
+                            )
+                          }
+                          </tbody>
+                        </table>
+                      :
+                        <div>No candidates...</div>
                     }
-                  </td>
-                  <td>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-12">
+          <div className="box">
+            <div className="box-header with-border">
+                <h3 className="box-title">Slates Created</h3>
+              </div>
+              <div className="box-body">
+                <div className="row">
+                  <div className="col-md-12">
                     {
-                      this.state.myVote === key
-                      ? 'Voted'
-                      : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
+                      Object.keys(this.state.candidates).length > 0
+                      ?
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>
+                                Slate
+                              </th>
+                              <th>
+                                Addresses
+                              </th>
+                              <th>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {
+                              Object.keys(this.state.slates).map(key =>
+                                <tr key={ key }>
+                                  <td>
+                                    <span title={key}>{ key.substring(0,20) }...</span>
+                                  </td>
+                                  <td>
+                                    {
+                                      this.state.slates[key].map(value => <p key={ value }>{ etherscanAddress(this.state.network.network, value, value) }</p>)
+                                    }
+                                  </td>
+                                  <td>
+                                    {
+                                      this.state.myVote === key
+                                      ? 'Voted'
+                                      : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
+                                    }
+                                  </td>
+                                </tr>
+                              )
+                            }
+                          </tbody>
+                        </table>
+                      :
+                        <div>No slates created...</div>
                     }
-                  </td>
-                </tr>
-              )
-            }
-          </tbody>
-        </table>
-        <br />
-        <form ref={ (input) => this.createSlateForm = input } onSubmit={ e => this.createSlate(e) }>
-          <p>New slate</p>
-          <input ref={ (input) => this.addresses = input } type="text" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
-          <select ref={ (input) => this.methodVE = input } >
-            <option value="vote">Create and vote</option>
-            <option value="etch">Just create</option>
-          </select>
-          <input type="submit" />
-        </form>
-        <hr />
-        <p style={ {textDecoration: 'underline'} }>Candidates Ranking</p>
-        <table>
-          <thead>
-            <tr>
-              <th>
-                Candidate
-              </th>
-              <th>
-                Weight
-              </th>
-              <th>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-          {
-            Object.keys(this.state.candidates).map(key =>
-              <tr key={ key }>
-                <td>{ key }</td>
-                <td>{ web3.fromWei(this.state.candidates[key]).valueOf() }</td>
-                <td>{ typeof this.state.candidates[this.state.hat] === 'undefined' || this.state.candidates[key].gt(this.state.candidates[this.state.hat]) ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : '' }</td>
-              </tr>
-            )
-          }
-          </tbody>
-        </table>
-      </div>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-12">
+          <div className="box">
+            <div className="box-header with-border">
+                <h3 className="box-title">New slate</h3>
+              </div>
+              <div className="box-body">
+                <div className="row">
+                  <div className="col-md-12">
+                    <form ref={ (input) => this.createSlateForm = input } onSubmit={ e => this.createSlate(e) }>
+                      <input ref={ (input) => this.addresses = input } type="text" placeholder="Add addresses (comma separated)" style={ {width: '200px'} }/>
+                      <select ref={ (input) => this.methodVE = input } >
+                        <option value="vote">Create and vote</option>
+                        <option value="etch">Just create</option>
+                      </select>
+                      <input type="submit" />
+                    </form>
+                  </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     )
   } 
 
   render() {
     return (
-      <div className="App">
-        <h2>Chief Explorer</h2>
-        <p>Network: { this.state.network.network }</p>
-        <p>Your account: { this.state.network.defaultAccount }</p>
-        <p>Actual contracts:</p>
-        <p>Chief: { etherscanAddress(this.state.network.network, this.state.chief, this.state.chief) }</p>
-        <p>GOV Token: { etherscanToken(this.state.network.network, this.state.gov, this.state.gov) }</p>
-        <p>IOU Token: { etherscanToken(this.state.network.network, this.state.iou, this.state.iou) }</p>
-        <hr />
-        {
-          this.state.network.network !== 'main' &&
-          <span>
-            <p>Create new Chief contract (If GOV address remains empty or is not a valid address, it will deploy a test token)</p>
-            <form ref={ input => this.deployForm = input } onSubmit={ e => this.deploy(e) }>
-              <input ref={ input => this.govAddress = input } name="gov" type="text" placeholder="GOV Token Address" />
-              <input ref={ input => this.max_yays = input } name="max_yays" type="text" placeholder="Max yays" />
-              <input type="submit"/>
-            </form>
-            <hr />
-            <p>Load { this.state.chief ? 'another ': '' }Chief contract</p>
-            <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
-              <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
-              <input type="submit" />
-            </form>
-            <hr />
-          </span>
-        }
-        {
-          this.state.chief
-          ? this.renderChiefData()
-          : ''
-        }
-        <ReactNotify ref='notificator'/>
+      <div className="content-wrapper">
+        <section className="content-header">
+          <h1>
+            <a href="/" className="logo"><img src={ logo } alt="Chief Explorer" width="50" /> - Chief Explorer</a>
+          </h1>
+        </section>
+        <section className="content">
+          <div>
+            <div className="row">
+              <div className="col-md-12">
+                <div className="box">
+                  <div className="box-header with-border">
+                    <h3 className="box-title">General Info</h3>
+                  </div>
+                  <div className="box-body">
+                    <div className="row">
+                      <div className="col-md-6">
+                        <p>
+                          <strong>Network:</strong> { this.state.network.network }<br />
+                          <strong>Your account:</strong> { etherscanAddress(this.state.network.network, this.state.network.defaultAccount, this.state.network.defaultAccount) }<br />
+                          <strong>Chief:</strong> { etherscanAddress(this.state.network.network, this.state.chief, this.state.chief) }<br />
+                          <strong>GOV Token:</strong> { etherscanToken(this.state.network.network, this.state.gov, this.state.gov) }<br />
+                          <strong>IOU Token:</strong> { etherscanToken(this.state.network.network, this.state.iou, this.state.iou) }<br />
+                          <strong>Max yays:</strong> { this.state.max_yays.eq(-1) ? 'Loading...' : this.state.max_yays.valueOf() }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {
+                this.state.network.network !== 'main' &&
+                <div className="col-md-6">
+                  <div className="box">
+                    <div className="box-header with-border">
+                        <h3 className="box-title">Create new Chief</h3>
+                      </div>
+                      <div className="box-body">
+                        <div className="row">
+                          <div className="col-md-12">
+                            <span>
+                              <p>If GOV address remains empty or is not a valid address, it will deploy a test token</p>
+                              <form ref={ input => this.deployForm = input } onSubmit={ e => this.deploy(e) }>
+                                <input ref={ input => this.govAddress = input } name="gov" type="text" placeholder="GOV Token Address" />
+                                <input ref={ input => this.max_yays = input } name="max_yays" type="text" placeholder="Max yays" />
+                                <input type="submit"/>
+                              </form>
+                            </span>
+                          </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+              {
+                this.state.network.network !== 'main' &&
+                <div className="col-md-6">
+                  <div className="box">
+                    <div className="box-header with-border">
+                        <h3 className="box-title">Load { this.state.chief ? 'another ': '' }Chief contract</h3>
+                      </div>
+                      <div className="box-body">
+                        <div className="row">
+                          <div className="col-md-12">
+                            <span>
+                              <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
+                                <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
+                                <input type="submit" />
+                              </form>
+                            </span>
+                          </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+              {
+                this.state.chief
+                ? this.renderChiefData()
+                : ''
+              }
+              <hr />
+              <ReactNotify ref='notificator'/>
+            </div>
+          </div>
+        </section>
       </div>
     );
   }

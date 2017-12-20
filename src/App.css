@@ -78,3 +78,8 @@
 .notify-title {
   font-weight: 700;
 }
+
+table tr td {
+  border: 1px solid #d2d6de;
+  padding: 5px;
+}
