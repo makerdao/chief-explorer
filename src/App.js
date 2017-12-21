@@ -7,13 +7,16 @@ import logo from './makerdao.svg';
 
 var dschief = require('./abi/dschief.json');
 var dstoken = require('./abi/dstoken.json');
+var dsspell = require('./abi/dsspell.json');
 var settings = require('./settings.json');
 var chiefContract = web3.eth.contract(dschief.abi);
 var tokenContract = web3.eth.contract(dstoken.abi);
+var spellContract = web3.eth.contract(dsspell.abi);
 window.dschief = dschief;
 window.dstoken = dstoken;
 window.chiefContract = chiefContract;
 window.tokenContract = tokenContract;
+window.spellContract = spellContract;
 window.l = console.log;
 
 class App extends Component {
@@ -41,6 +44,7 @@ class App extends Component {
       IOUAllowance: web3.toBigNumber(-1),
       max_yays: web3.toBigNumber(-1),
       hat: null,
+      hatSpell: {}
     };
   }
 
@@ -406,10 +410,30 @@ class App extends Component {
     });
   }
 
+  getValueHatSpell = (field) => {
+    return new Promise((resolve, reject) => {
+      spellContract.at(this.state.hat)[field]((e, r) => {
+        if (!e) {
+          resolve(r);
+        } else {
+          reject(e);
+        }
+      });
+    });
+    
+  }
+
   getHat = () => {
     this.chiefObj.hat((e, r) => {
       if (!e) {
-        this.setState({ hat: r })
+        this.setState({ hat: r, hatSpell: {} }, () => {
+          const promises = [this.getValueHatSpell('whom'), this.getValueHatSpell('mana'), this.getValueHatSpell('data'), this.getValueHatSpell('done')];
+          Promise.all(promises).then(r2 => {
+            if (web3.isAddress(r2[0])) {
+              this.setState({ hatSpell: { 'whom': r2[0], 'mana': r2[1], 'data': r2[2], 'done': r2[3] } });
+            }
+          }, e => {});
+        })
       }
     });
   }
@@ -720,6 +744,28 @@ class App extends Component {
                 <div className="row">
                   <div className="col-md-12">
                     <p>Hat: { etherscanAddress(this.state.network.network, this.state.hat, this.state.hat) }</p>
+                    {
+                      Object.keys(this.state.hatSpell).length > 0 &&
+                      <table style={ { marginBottom: '15px' } }>
+                        <tbody>
+                          <tr>
+                            <td>Target</td><td>{ etherscanAddress(this.state.network.network, this.state.hatSpell.whom, this.state.hatSpell.whom) }</td>
+                          </tr>
+                          <tr>
+                            <td>Sig</td><td>{ this.state.hatSpell.data.substring(0, 10) }</td>
+                          </tr>
+                          <tr>
+                            <td>Calldata</td><td>0x{ this.state.hatSpell.data.substring(10, this.state.hatSpell.data.length) }</td>
+                          </tr>
+                          <tr>
+                            <td>Value</td><td>{ printNumber(this.state.hatSpell.mana) }</td>
+                          </tr>
+                          <tr>
+                            <td>Executed</td><td>{ this.state.hatSpell.done ? 'Yes' : 'No' }</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    }
                     {
                       Object.keys(this.state.candidates).length > 0
                       ?

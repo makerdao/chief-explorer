@@ -13,6 +13,12 @@ var LIB_PATH = [
       'DSToken',
       'DSRoles'
     ]
+  },
+  {
+    lib: 'lib/ds-spell/',
+    files: [
+      'DSSpell'
+    ]
   }
 ];
 var JSON_OUT = 'src/abi/';
