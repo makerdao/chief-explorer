@@ -253,10 +253,9 @@ class App extends Component {
     return web3.sha3(method).substring(0, 10)
   }
 
-  getHatSpellABIFromEtherscan = address => {
+  getContractABIFromEtherscan = address => {
     return new Promise((resolve, reject) => {
-      const prefix = this.state.network.network === 'main' ? 'api' : `${this.state.network.network}-api`;
-      const url = `https://${prefix}.etherscan.io/api?module=contract&action=getabi&address=${address}`;
+      const url = `https://api${this.state.network.network !== 'main' ? `-${this.state.network.network}` : ''}.etherscan.io/api?module=contract&action=getabi&address=${address}`;
       const xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.onreadystatechange = () => {
@@ -448,10 +447,9 @@ class App extends Component {
           const promises = [this.getValueHatSpell('whom'), this.getValueHatSpell('mana'), this.getValueHatSpell('data'), this.getValueHatSpell('done')];
           Promise.all(promises).then(r2 => {
             if (web3.isAddress(r2[0])) {
-              Promise.resolve(this.getHatSpellABIFromEtherscan(r2[0])).then(r3 => {
+              Promise.resolve(this.getContractABIFromEtherscan(r2[0])).then(r3 => {
                 const sig = r2[2].substring(0, 10);
                 let abi = [];
-                console.log(sig);
                 JSON.parse(r3.result).forEach(value => {
                   if (this.methodSig(`${value.name}(${value.inputs.map(val => val.type).join(',')})`) === sig) {
                     abi = value;
