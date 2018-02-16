@@ -253,6 +253,24 @@ class App extends Component {
     return web3.sha3(method).substring(0, 10)
   }
 
+  getHatSpellABIFromEtherscan = address => {
+    return new Promise((resolve, reject) => {
+      const prefix = this.state.network.network === 'main' ? 'api' : `${this.state.network.network}-api`;
+      const url = `https://${prefix}.etherscan.io/api?module=contract&action=getabi&address=${address}`;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+          const response = JSON.parse(xhr.responseText);
+          resolve(response);
+        } else if (xhr.readyState === 4 && xhr.status !== 200) {
+          reject(xhr.status);
+        }
+      }
+      xhr.send();
+    })
+  }
+
   executeCallback = args => {
     const method = args.shift();
     this[method](...args);
@@ -430,7 +448,17 @@ class App extends Component {
           const promises = [this.getValueHatSpell('whom'), this.getValueHatSpell('mana'), this.getValueHatSpell('data'), this.getValueHatSpell('done')];
           Promise.all(promises).then(r2 => {
             if (web3.isAddress(r2[0])) {
-              this.setState({ hatSpell: { 'whom': r2[0], 'mana': r2[1], 'data': r2[2], 'done': r2[3] } });
+              Promise.resolve(this.getHatSpellABIFromEtherscan(r2[0])).then(r3 => {
+                const sig = r2[2].substring(0, 10);
+                let abi = [];
+                console.log(sig);
+                JSON.parse(r3.result).forEach(value => {
+                  if (this.methodSig(`${value.name}(${value.inputs.map(val => val.type).join(',')})`) === sig) {
+                    abi = value;
+                  }
+                });
+                this.setState({ hatSpell: { 'whom': r2[0], 'mana': r2[1], 'data': r2[2], 'done': r2[3], 'abi': abi } });
+              });
             }
           }, e => {});
         })
@@ -631,6 +659,33 @@ class App extends Component {
   //
 
   renderChiefData = () => {
+    const hatSpellParams = [];
+    if (this.state.hatSpell.abi) {
+      let i = 0;
+      this.state.hatSpell.abi.inputs.forEach(input => {
+        let val = this.state.hatSpell.data.substring(10 + i * 64, 10 + (i + 1) * 64);
+        switch(input.type) {
+          case 'uint256':
+          case 'uint128':
+          case 'uint64':
+          case 'uint32':
+          case 'uint16':
+          case 'uint8':
+            val = web3.toBigNumber(`0x${val}`).valueOf();
+            break;
+          case 'string':
+            val = web3.toAscii(`0x${val}`);
+            break;
+          case 'address':
+            val = `0x${val.substring(24, 64)}`;
+            break;
+          default:
+            break;
+        }
+        hatSpellParams.push({field: input.name, value: val});
+        i++;
+      });
+    }
     return(
       <section>
         <div className="col-md-12">
@@ -749,19 +804,47 @@ class App extends Component {
                       <table style={ { marginBottom: '15px' } }>
                         <tbody>
                           <tr>
-                            <td>Target</td><td>{ etherscanAddress(this.state.network.network, this.state.hatSpell.whom, this.state.hatSpell.whom) }</td>
+                            <td>Target</td>
+                            <td>{ etherscanAddress(this.state.network.network, this.state.hatSpell.whom, this.state.hatSpell.whom) }</td>
                           </tr>
                           <tr>
-                            <td>Sig</td><td>{ this.state.hatSpell.data.substring(0, 10) }</td>
+                            <td>Data</td>
+                            <td>
+                              { this.state.hatSpell.data.substring(0, 10) }<br />
+                              { this.state.hatSpell.data.substring(10, this.state.hatSpell.data.length) }
+                            </td>
+                          </tr>
+                          {
+                            this.state.hatSpell.abi &&
+                            <tr>
+                              <td>Sig</td>
+                              <td>
+                                {`${this.state.hatSpell.abi.name}(${this.state.hatSpell.abi.inputs.map(val => `${val.type} ${val.name}`).join(', ')})`}
+                              </td>
+                            </tr>
+                          }
+                          {
+                            hatSpellParams.length > 0 &&
+                            <tr>
+                              <td>Params</td>
+                              <td>
+                                {
+                                  hatSpellParams.map(input =>
+                                    <p key={ input.field }>
+                                      { input.field }: { input.value }
+                                    </p>
+                                  )
+                                }
+                              </td>
+                            </tr>
+                          }
+                          <tr>
+                            <td>Value</td>
+                            <td>{ printNumber(this.state.hatSpell.mana) }</td>
                           </tr>
                           <tr>
-                            <td>Calldata</td><td>0x{ this.state.hatSpell.data.substring(10, this.state.hatSpell.data.length) }</td>
-                          </tr>
-                          <tr>
-                            <td>Value</td><td>{ printNumber(this.state.hatSpell.mana) }</td>
-                          </tr>
-                          <tr>
-                            <td>Executed</td><td>{ this.state.hatSpell.done ? 'Yes' : 'No' }</td>
+                            <td>Executed</td>
+                            <td>{ this.state.hatSpell.done ? 'Yes' : 'No' }</td>
                           </tr>
                         </tbody>
                       </table>
