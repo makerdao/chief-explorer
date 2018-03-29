@@ -437,7 +437,6 @@ class App extends Component {
         }
       });
     });
-    
   }
 
   getHat = () => {
@@ -466,7 +465,7 @@ class App extends Component {
   //
 
   // Actions
-  load = (e) => {
+  loadCustomChief = (e) => {
     e.preventDefault();
     const chief = this.chiefAddress.value;
     if (chief && web3.isAddress(chief)) {
@@ -962,7 +961,7 @@ class App extends Component {
         </div>
       </section>
     )
-  } 
+  }
 
   render() {
     return (
@@ -1031,7 +1030,7 @@ class App extends Component {
                         <div className="row">
                           <div className="col-md-12">
                             <span>
-                              <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
+                              <form ref={ input => this.loadForm = input } onSubmit={ e => this.loadCustomChief(e) }>
                                 <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
                                 <input type="submit" />
                               </form>
