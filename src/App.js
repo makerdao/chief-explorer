@@ -482,6 +482,11 @@ class App extends Component {
     }
   }
 
+  clearCustomChief = (e) => {
+    window.localStorage.setItem('chief', '');
+    this.initContract();
+  }
+
   deploy = async (e) => {
     e.preventDefault();
     if (this.max_yays.value) {
@@ -1035,6 +1040,13 @@ class App extends Component {
                             <form ref={ input => this.loadForm = input } onSubmit={ e => this.loadCustomChief(e) }>
                               <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
                               <input type="submit" />
+                              {
+                                window.localStorage.getItem('chief') &&
+                                <span>
+                                  &nbsp;
+                                  <button type="button" onClick={e => this.clearCustomChief(e)}>Use default contract</button>
+                                </span>
+                              }
                             </form>
                           </span>
                         </div>
