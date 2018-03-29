@@ -1026,18 +1026,18 @@ class App extends Component {
                 <div className="col-md-6">
                   <div className="box">
                     <div className="box-header with-border">
-                        <h3 className="box-title">Load { this.state.chief ? 'another ': '' }Chief contract</h3>
-                      </div>
-                      <div className="box-body">
-                        <div className="row">
-                          <div className="col-md-12">
-                            <span>
-                              <form ref={ input => this.loadForm = input } onSubmit={ e => this.loadCustomChief(e) }>
-                                <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
-                                <input type="submit" />
-                              </form>
-                            </span>
-                          </div>
+                      <h3 className="box-title">Load { this.state.chief ? 'another ': '' }Chief contract</h3>
+                    </div>
+                    <div className="box-body">
+                      <div className="row">
+                        <div className="col-md-12">
+                          <span>
+                            <form ref={ input => this.loadForm = input } onSubmit={ e => this.loadCustomChief(e) }>
+                              <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
+                              <input type="submit" />
+                            </form>
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
