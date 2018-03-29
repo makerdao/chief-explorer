@@ -154,7 +154,9 @@ class App extends Component {
     this.setState({
       ...initialState
     }, async () => {
-      const chief = this.state.network.network === 'main' || window.localStorage.getItem('chief') === '' ? settings.chain[this.state.network.network].chief : window.localStorage.getItem('chief');
+      const chief = this.state.network.network === 'main' ?
+        settings.chain[this.state.network.network].chief :
+        (window.localStorage.getItem('chief') || settings.chain[this.state.network.network].chief);
       if (chief  && web3.isAddress(chief)) {
         window.chiefObj = this.chiefObj = chiefContract.at(chief);
         const gov = await this.getToken('GOV');
