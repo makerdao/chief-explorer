@@ -154,7 +154,9 @@ class App extends Component {
     this.setState({
       ...initialState
     }, async () => {
-      const chief = this.state.network.network === 'main' || window.localStorage.getItem('chief') === '' ? settings.chain[this.state.network.network].chief : window.localStorage.getItem('chief');
+      const chief = this.state.network.network === 'main' ?
+        settings.chain[this.state.network.network].chief :
+        (window.localStorage.getItem('chief') || settings.chain[this.state.network.network].chief);
       if (chief  && web3.isAddress(chief)) {
         window.chiefObj = this.chiefObj = chiefContract.at(chief);
         const gov = await this.getToken('GOV');
@@ -437,7 +439,6 @@ class App extends Component {
         }
       });
     });
-    
   }
 
   getHat = () => {
@@ -466,7 +467,7 @@ class App extends Component {
   //
 
   // Actions
-  load = (e) => {
+  loadCustomChief = (e) => {
     e.preventDefault();
     const chief = this.chiefAddress.value;
     if (chief && web3.isAddress(chief)) {
@@ -479,6 +480,11 @@ class App extends Component {
         console.log(e);
       }
     }
+  }
+
+  clearCustomChief = (e) => {
+    window.localStorage.setItem('chief', '');
+    this.initContract();
   }
 
   deploy = async (e) => {
@@ -962,7 +968,7 @@ class App extends Component {
         </div>
       </section>
     )
-  } 
+  }
 
   render() {
     return (
@@ -1025,18 +1031,25 @@ class App extends Component {
                 <div className="col-md-6">
                   <div className="box">
                     <div className="box-header with-border">
-                        <h3 className="box-title">Load { this.state.chief ? 'another ': '' }Chief contract</h3>
-                      </div>
-                      <div className="box-body">
-                        <div className="row">
-                          <div className="col-md-12">
-                            <span>
-                              <form ref={ input => this.loadForm = input } onSubmit={ e => this.load(e) }>
-                                <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
-                                <input type="submit" />
-                              </form>
-                            </span>
-                          </div>
+                      <h3 className="box-title">Load { this.state.chief ? 'another ': '' }Chief contract</h3>
+                    </div>
+                    <div className="box-body">
+                      <div className="row">
+                        <div className="col-md-12">
+                          <span>
+                            <form ref={ input => this.loadForm = input } onSubmit={ e => this.loadCustomChief(e) }>
+                              <input ref={ input => this.chiefAddress = input } name="chief" type="text" placeholder="Chief address" />
+                              <input type="submit" />
+                              {
+                                window.localStorage.getItem('chief') &&
+                                <span>
+                                  &nbsp;
+                                  <button type="button" onClick={e => this.clearCustomChief(e)}>Use default contract</button>
+                                </span>
+                              }
+                            </form>
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
