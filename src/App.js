@@ -37,6 +37,7 @@ class App extends Component {
       chief: null,
       slates: [],
       candidates: {},
+      loaded: false,
       myVote: null,
       GOVBalance: web3.toBigNumber(-1),
       GOVAllowance: web3.toBigNumber(-1),
@@ -188,13 +189,13 @@ class App extends Component {
           });
           this.chiefObj.LogNote({ sig: this.methodSig('vote(bytes32)') }, { fromBlock: 'latest' }, (e, r) => {
             this.getMyVote();
-            this.getApprovals();
+            this.reloadApprovals();
             this.logTransactionConfirmed(r.transactionHash);
           });
           this.chiefObj.LogNote({ sig: [this.methodSig('lock(uint128)'), this.methodSig('free(uint128)')] }, { fromBlock: 'latest' }, (e, r) => {
             this.getIOUBalance();
             this.getIOUAllowance();
-            this.getApprovals();
+            this.reloadApprovals();
           });
           this.govObj.LogNote({ sig: [this.methodSig('transfer(address,uint256)'),
                                       this.methodSig('transferFrom(address,address,uint256)'),
@@ -220,13 +221,20 @@ class App extends Component {
 
   getSlates = () => {
     return new Promise((resolve, reject) => {
-      this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock: 0 }).get((e, r) => {
+      this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock: 0 }).get(async (e, r) => {
         if (!e) {
+          const candidates = {};
+          const slates = {};
           for (let i = 0; i < r.length; i++) {
-            this.extractSlateAddresses(r[i]);
+            this.extractSlateAddresses(r[i], candidates, slates);
           }
           this.getMyVote();
-          resolve(true);
+          await this.getApprovals(candidates);
+          this.setState(() => {
+            return {candidates, slates, loaded: true}
+          }, () => {
+            resolve(true);
+          });
         } else {
           reject(e);
         }
@@ -234,24 +242,18 @@ class App extends Component {
     });
   }
 
-  extractSlateAddresses = (data) => {
+  extractSlateAddresses = (data, candidates, slates) => {
     const addressesString = data.args.fax.substring(data.args.sig === this.methodSig('vote(address[],address)') ? 202 : 138);
-    this.setState((prevState, props) => {
-      const candidates = {...prevState.candidates};
-      const slates = {...prevState.slates};
-      const addresses = [];
-      let slateHashAddress = '';
-      for (let i = 0; i < addressesString.length / 64; i++) {
-        const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
-        candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
-        addresses.push(address);
-        slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
-      }
-      slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
-      return { candidates, slates };
-    }, () => {
-      this.getApprovals();
-    });
+    const addresses = [];
+    let slateHashAddress = '';
+    for (let i = 0; i < addressesString.length / 64; i++) {
+      const address = `0x${addressesString.substring(i * 64 + 24, (i + 1) * 64)}`;
+      candidates[address] = typeof candidates[address] !== 'undefined' ? candidates[address] : web3.toBigNumber(0);
+      addresses.push(address);
+      slateHashAddress += addressesString.substring(i * 64, (i + 1) * 64);
+    }
+    slates[web3.sha3(slateHashAddress, { encoding: 'hex' })] = addresses;
+    return { candidates, slates };
   }
 
   methodSig = (method) => {
@@ -359,18 +361,32 @@ class App extends Component {
     })
   }
 
-  getApprovals = () => {
-    Object.keys(this.state.candidates).map(key => {
-      this.chiefObj.approvals(key, (e2, r2) => {
-        if (!e2) {
-          this.setState((prevState, props) => {
-            const candidates = {...prevState.candidates};
-            candidates[key] = r2;
-            return { candidates };
-          });
+  getApproval = (candidate) => {
+    return new Promise((resolve, reject) => {
+      this.chiefObj.approvals(candidate, (e, r) => {
+        if (!e) {
+          resolve(r);
+        } else {
+          reject(e);
         }
       });
-      return false;
+    })
+  }
+
+  getApprovals = (candidates) => {
+    return new Promise(resolve => {
+      const promises = [];
+      Object.keys(candidates).map(key => {
+        promises.push(this.getApproval(key));
+      });
+      Promise.all(promises).then(r => {
+        let i = 0;
+        Object.keys(candidates).map(key => {
+          candidates[key] = r[i];
+          i ++;
+        });
+        resolve(true);
+      });
     });
   }
 
@@ -411,9 +427,15 @@ class App extends Component {
     this.getIOUBalance();
   }
 
+  reloadApprovals = () => {
+    const candidates = { ...this.state.candidates };
+    this.getApprovals(candidates);
+    this.setState({ candidates });
+  }
+
   reloadVotes = () => {
     this.getMyVote();
-    this.getApprovals();
+    this.reloadApprovals();
   }
 
   getMyVote = () => {
@@ -857,35 +879,39 @@ class App extends Component {
                       </table>
                     }
                     {
-                      Object.keys(this.state.candidates).length > 0
+                      this.state.loaded
                       ?
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>
-                                Candidate
-                              </th>
-                              <th>
-                                Weight
-                              </th>
-                              <th>
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                          {
-                            Object.keys(this.state.candidates).sort((a,b) => this.state.candidates[b] - this.state.candidates[a]).map(key =>
-                              <tr key={ key }>
-                                <td>{ etherscanAddress(this.state.network.network, key, key) }</td>
-                                <td style={ {textAlign: 'right'} }>{ printNumber(this.state.candidates[key]) }</td>
-                                <td>{ typeof this.state.candidates[this.state.hat] === 'undefined' || this.state.candidates[key].gt(this.state.candidates[this.state.hat]) ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : <span style={ {color:'#d2d6de'} }>Lift this candidate</span> }</td>
+                        Object.keys(this.state.candidates).length > 0
+                        ?
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>
+                                  Candidate
+                                </th>
+                                <th>
+                                  Weight
+                                </th>
+                                <th>
+                                </th>
                               </tr>
-                            )
-                          }
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                            {
+                              Object.keys(this.state.candidates).sort((a,b) => this.state.candidates[b] - this.state.candidates[a]).map(key =>
+                                <tr key={ key }>
+                                  <td>{ etherscanAddress(this.state.network.network, key, key) }</td>
+                                  <td style={ {textAlign: 'right'} }>{ printNumber(this.state.candidates[key]) }</td>
+                                  <td>{ typeof this.state.candidates[this.state.hat] === 'undefined' || this.state.candidates[key].gt(this.state.candidates[this.state.hat]) ? <a href="#lift" data-address={ key } onClick={ this.liftCandidate }>Lift this candidate</a> : <span style={ {color:'#d2d6de'} }>Lift this candidate</span> }</td>
+                                </tr>
+                              )
+                            }
+                            </tbody>
+                          </table>
+                        :
+                          <div>No candidates...</div>
                       :
-                        <div>No candidates...</div>
+                        "Loading..."
                     }
                   </div>
               </div>
@@ -901,47 +927,51 @@ class App extends Component {
                 <div className="row">
                   <div className="col-md-12">
                     {
-                      Object.keys(this.state.candidates).length > 0
+                      this.state.loaded
                       ?
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>
-                                Slate
-                              </th>
-                              <th>
-                                Addresses
-                              </th>
-                              <th>
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {
-                              Object.keys(this.state.slates).map(key =>
-                                <tr key={ key }>
-                                  <td>
-                                    <span title={key}>{ key.substring(0,20) }...</span>
-                                  </td>
-                                  <td>
-                                    {
-                                      this.state.slates[key].map(value => <p key={ value }>{ etherscanAddress(this.state.network.network, value, value) }</p>)
-                                    }
-                                  </td>
-                                  <td>
-                                    {
-                                      this.state.myVote === key
-                                      ? 'Voted'
-                                      : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
-                                    }
-                                  </td>
-                                </tr>
-                              )
-                            }
-                          </tbody>
-                        </table>
+                        Object.keys(this.state.candidates).length > 0
+                        ?
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>
+                                  Slate
+                                </th>
+                                <th>
+                                  Addresses
+                                </th>
+                                <th>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {
+                                Object.keys(this.state.slates).map(key =>
+                                  <tr key={ key }>
+                                    <td>
+                                      <span title={key}>{ key.substring(0,20) }...</span>
+                                    </td>
+                                    <td>
+                                      {
+                                        this.state.slates[key].map(value => <p key={ value }>{ etherscanAddress(this.state.network.network, value, value) }</p>)
+                                      }
+                                    </td>
+                                    <td>
+                                      {
+                                        this.state.myVote === key
+                                        ? 'Voted'
+                                        : <a data-slate={ key } href="#vote" onClick={ this.voteSlate }>Vote this</a>
+                                      }
+                                    </td>
+                                  </tr>
+                                )
+                              }
+                            </tbody>
+                          </table>
+                        :
+                          <div>No slates created...</div>
                       :
-                        <div>No slates created...</div>
+                        "Loading..."
                     }
                   </div>
               </div>
