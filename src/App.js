@@ -112,9 +112,9 @@ class App extends Component {
     networkState['network'] = newNetwork;
     networkState['isConnected'] = true;
     networkState['latestBlock'] = 0;
-    this.setState({ network: networkState });
-
-    this.initContract();
+    this.setState({ network: networkState }, () => {
+      this.initContract();
+    });
   }
 
   checkAccounts = () => {
@@ -139,12 +139,15 @@ class App extends Component {
 
   componentDidMount() {
     setTimeout(() => {
-      initWeb3(web3);
-      window.web3 = web3;
-      this.checkNetwork();
-      this.checkAccounts();
-      this.checkAccountsInterval = setInterval(this.checkAccounts, 10000);
-      this.checkNetworkInterval = setInterval(this.checkNetwork, 3000);
+      initWeb3(web3).then(() => {
+        window.web3 = web3;
+        this.checkNetwork();
+        this.checkAccounts();
+        this.checkAccountsInterval = setInterval(this.checkAccounts, 10000);
+        this.checkNetworkInterval = setInterval(this.checkNetwork, 3000);
+      }, e => {
+        alert(e);
+      });
     }, 500);
   }
 
