@@ -376,14 +376,13 @@ class App extends Component {
   getApprovals = (candidates) => {
     return new Promise(resolve => {
       const promises = [];
-      Object.keys(candidates).map(key => {
-        promises.push(this.getApproval(key));
-      });
+      Object.keys(candidates).map(key => promises.push(this.getApproval(key)));
       Promise.all(promises).then(r => {
         let i = 0;
         Object.keys(candidates).map(key => {
           candidates[key] = r[i];
           i ++;
+          return true;
         });
         resolve(true);
       });
