@@ -219,26 +219,47 @@ class App extends Component {
     });
   }
 
+  _getSlates = () => {
+    return new Promise((resolve, reject) => {
+      web3.eth.getBlock('latest', async (e, r) => {
+        if (e) console.log("failed to fetch block number");
+        else {
+          const latestBlock = r.number;
+          const blockGap = 10000;
+          const blocksToFetch = [];
+          for (let fromBlock = 0; fromBlock < latestBlock; fromBlock += (blockGap + 1)) {
+            blocksToFetch.push([fromBlock, fromBlock + blockGap]);
+          }
+          const _slates = await Promise.all(blocksToFetch.map(([fromBlock, toBlock]) => 
+            new Promise((resolve, reject) => {
+              this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock, toBlock }).get(async (e, r) => {
+                if (e) reject(e);
+                resolve(r);
+              });
+            }) 
+          )).catch(e => reject(e));
+          resolve(_slates.flat());
+        }
+      })
+    })
+  }
+
   getSlates = () => {
     return new Promise((resolve, reject) => {
-      this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock: 0 }).get(async (e, r) => {
-        if (!e) {
-          const candidates = {};
-          const slates = {};
-          for (let i = 0; i < r.length; i++) {
-            this.extractSlateAddresses(r[i], candidates, slates);
-          }
-          this.getMyVote();
-          await this.getApprovals(candidates);
-          this.setState(() => {
-            return {candidates, slates, loaded: true}
-          }, () => {
-            resolve(true);
-          });
-        } else {
-          reject(e);
+      this._getSlates().then(async r => {
+        const candidates = {};
+        const slates = {};
+        for (let i = 0; i < r.length; i++) {
+          this.extractSlateAddresses(r[i], candidates, slates);
         }
-      });
+        this.getMyVote();
+        await this.getApprovals(candidates);
+        this.setState(() => {
+          return {candidates, slates, loaded: true}
+        }, () => {
+          resolve(true);
+        });
+      }).catch(reject);
     });
   }
 
