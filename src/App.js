@@ -230,13 +230,13 @@ class App extends Component {
           for (let fromBlock = 0; fromBlock < latestBlock; fromBlock += (blockGap + 1)) {
             blocksToFetch.push([fromBlock, fromBlock + blockGap]);
           }
-          const _slates = await Promise.all(blocksToFetch.map(([fromBlock, toBlock]) => 
+          const _slates = await Promise.all(blocksToFetch.map(([fromBlock, toBlock]) =>
             new Promise((resolve, reject) => {
               this.chiefObj.LogNote({ sig: [this.methodSig('etch(address[])'), this.methodSig('vote(address[])')] }, { fromBlock, toBlock }).get(async (e, r) => {
                 if (e) reject(e);
                 resolve(r);
               });
-            }) 
+            })
           )).catch(e => reject(e));
           resolve(_slates.flat());
         }

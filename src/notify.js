@@ -17,7 +17,7 @@ var Item = createReactClass({
   }
 });
 
-var Notify = createReactClass({
+var ReactNotify = createReactClass({
   displayName: "Notify",
   key: 0,
   getInitialState: function () {
@@ -69,4 +69,4 @@ var Notify = createReactClass({
   }
 });
 
-module.exports = Notify;
+export default ReactNotify
