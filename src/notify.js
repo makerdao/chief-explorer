@@ -1,12 +1,13 @@
-var React = require('react');
-var createReactClass = require('create-react-class');
+import React, { Component } from 'react';
 
-var Item = createReactClass({
-  displayName: "Item",
-  hideNotification: function () {
+class Item extends Component {
+  displayName = "Item";
+
+  hideNotification = () => {
     this.props.hideNotification(this.props.id);
-  },
-  render: function () {
+  }
+
+  render() {
     return (
       React.createElement("div", { className: "notify-item " + this.props.theme, onClick: this.hideNotification },
         React.createElement("p", { className: "notify-title" }, this.props.title),
@@ -15,42 +16,55 @@ var Item = createReactClass({
       )
     )
   }
-});
+}
 
-var ReactNotify = createReactClass({
-  displayName: "Notify",
-  key: 0,
-  getInitialState: function () {
+class ReactNotify extends Component {
+  displayName = "Notify";
+  key = 0;
+
+  constructor() {
+    super();
+    this.state = this.getInitialState();
+  }
+
+  getInitialState = () => {
     return {};
-  },
-  success: function (key, title, msg, time) {
+  }
+
+  success = (key, title, msg, time) => {
     this.addNotify(key, title, msg, time, 'success');
-  },
-  error: function (key, title, msg, time) {
+  }
+
+  error = (key, title, msg, time) => {
     this.addNotify(key, title, msg, time, 'error');
-  },
-  info: function (key, title, msg, time) {
+  }
+
+  info = (key, title, msg, time) => {
     this.addNotify(key, title, msg, time, 'info');
-  },
-  addNotify: function (key, title, msg, time, theme) {
+  }
+
+  addNotify = (key, title, msg, time, theme) => {
     const state = {...this.state}
     state[key] = { title: title, msg: msg, time: time, theme: theme };
     this.setState(state);
     this.countToHide(time, key);
-  },
-  countToHide: function (duration, key) {
+  }
+
+  countToHide = (duration, key) => {
     if (duration) {
       var that = this;
       setTimeout(function () {
         that.hideNotification(key);
       }, duration);
     }
-  },
-  hideNotification: function (key) {
+  }
+
+  hideNotification = (key) => {
     delete this.state[key];
     this.setState(this.state);
-  },
-  render: function () {
+  }
+
+  render() {
     var keys = Object.keys(this.state);
     var state = this.state;
     var hide = this.hideNotification;
@@ -67,6 +81,6 @@ var ReactNotify = createReactClass({
     });
     return (React.createElement("div", { className: "notify-container" }, el));
   }
-});
+}
 
-export default ReactNotify
+export default ReactNotify;
