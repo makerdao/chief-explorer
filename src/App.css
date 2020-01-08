@@ -79,6 +79,28 @@
   font-weight: 700;
 }
 
+.warning-box {
+  position: relative;
+  border-radius: 3px;
+  background: #FFF;
+  margin-bottom: 20px;
+  width: 100%;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  background-color: #e8643f;
+  color: white;
+}
+
+.warning-text-wrapper {
+  padding: 12px;
+  text-align: center;
+}
+
+.warning-text {
+  margin-top: 0px;
+  margin-bottom: 0px;
+  font-size: 16px;
+}
+
 table tr td {
   border: 1px solid #d2d6de;
   padding: 5px;
