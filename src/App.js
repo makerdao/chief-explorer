@@ -1040,7 +1040,7 @@ class App extends Component {
                     <h3 className="warning-text"> 
                       <strong style={{fontWeight: "bold"}}> Warning </strong> 
                       <br /> 
-                      Potential Risk - This page is used for viewing the current MKR weighting against Governance proposals and has the ability to lock/free user balances. It should be used at the user's own risk.
+                      Potential Risk - This page displays the current MKR weighting of each Governance proposal and has the ability to lock/free user balances, create slates, cast votes, and lift proposal addresses. It should be used at the user's own risk.
                     </h3>
                   </div>
                 </div>
