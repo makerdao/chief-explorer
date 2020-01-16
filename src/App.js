@@ -1035,6 +1035,15 @@ class App extends Component {
           <div>
             <div className="row">
               <div className="col-md-12">
+                <div className="warning-box">
+                  <div className="warning-text-wrapper">
+                    <h3 className="warning-text"> 
+                      <strong style={{fontWeight: "bold"}}> Warning </strong> 
+                      <br /> 
+                      Potential Risk - This page displays the current MKR weighting of each Governance proposal and has the ability to lock/free user balances, create slates, cast votes, and lift proposal addresses. It should be used at the user's own risk.
+                    </h3>
+                  </div>
+                </div>
                 <div className="box">
                   <div className="box-header with-border">
                     <h3 className="box-title">General Info</h3>
