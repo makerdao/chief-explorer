@@ -827,7 +827,7 @@ class App extends Component {
                 <div className="row">
                   <div className="col-md-12">
                     <form ref={ (input) => this.lockFreeForm = input } onSubmit={ e => this.lockFree(e) }>
-                      <input ref={ (input) => this.amount = input } type="number" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
+                      <input ref={ (input) => this.amount = input } type="number" step="0.000000000000000001" placeholder="Amount to be locked/freed" style={ {width: '200px'} }/>
                       <select ref={ (input) => this.methodLF = input } >
                         <option value="lock">Lock</option>
                         <option value="free">Free</option>
